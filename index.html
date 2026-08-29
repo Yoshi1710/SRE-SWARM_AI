@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRE Swarm AI Dashboard</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+            margin: 0;
+            padding: 24px;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { color: #38bdf8; margin-bottom: 8px; }
+        p.desc { color: #94a3b8; font-size: 14px; margin-top: 0; }
+        
+        .form-group { margin-bottom: 16px; }
+        label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #cbd5e1; }
+        select, textarea {
+            width: 100%;
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #f8fafc;
+            border-radius: 8px;
+            padding: 10px;
+            box-sizing: border-box;
+            font-family: monospace;
+            font-size: 13px;
+        }
+        button {
+            background-color: #10b981;
+            color: #0f172a;
+            font-weight: 700;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 20px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 15px;
+        }
+        button:hover { background-color: #34d399; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .result-box {
+            margin-top: 24px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 16px;
+            display: none;
+        }
+        .badge {
+            display: inline-block;
+            background: #065f46;
+            color: #34d399;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        pre {
+            background: #0f172a;
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            color: #a7f3d0;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🛡️ SRE Swarm AI</h1>
+    <p class="desc">Autonomous Incident Fixer & Vector Memory Sandbox</p>
+
+    <div class="form-group">
+        <label>Language</label>
+        <select id="lang">
+            <option value="python">Python</option>
+            <option value="javascript">JavaScript</option>
+            <option value="go">Go</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Broken Code</label>
+        <textarea id="code" rows="5">def parse_port(config):
+    return int(config['server']['port'])
+
+print(parse_port({'server': {}}))</textarea>
+    </div>
+
+    <div class="form-group">
+        <label>Error Log</label>
+        <textarea id="error" rows="2">KeyError: 'port' at line 2 in parse_port</textarea>
+    </div>
+
+    <button id="btn" onclick="sendIncident()">🚀 Auto-Heal & Verify Code</button>
+
+    <!-- Results Section -->
+    <div id="result" class="result-box">
+        <div style="margin-bottom: 12px;">
+            Status: <span id="status" class="badge">RESOLVED</span>
+        </div>
+        
+        <label>Root Cause Analysis (RCA):</label>
+        <pre id="rca" style="color: #cbd5e1; white-space: pre-wrap;"></pre>
+
+        <label>Verified Fixed Code:</label>
+        <pre id="patch"></pre>
+
+        <label>Sandbox Test Output:</label>
+        <pre id="sandbox" style="color: #94a3b8;"></pre>
+    </div>
+</div>
+
+<script>
+    async function sendIncident() {
+        const btn = document.getElementById('btn');
+        const result = document.getElementById('result');
+        
+        btn.innerText = "Fixing & Verifying in Sandbox...";
+        btn.disabled = true;
+
+        const payload = {
+            language: document.getElementById('lang').value,
+            broken_code: document.getElementById('code').value,
+            error_log: document.getElementById('error').value
+        };
+
+        try {
+            const res = await fetch('/triage', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+
+            document.getElementById('status').innerText = data.status;
+            document.getElementById('rca').innerText = data.rca_post_mortem;
+            document.getElementById('patch').innerText = data.verified_code_patch;
+            document.getElementById('sandbox').innerText = data.sandbox_execution_output;
+            result.style.display = 'block';
+        } catch (err) {
+            alert("Error: " + err.message);
+        } finally {
+            btn.innerText = "🚀 Auto-Heal & Verify Code";
+            btn.disabled = false;
+        }
+    }
+</script>
+
+</body>
+</html>

@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 from typing import TypedDict, Optional
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -48,7 +49,7 @@ class AgentState(TypedDict):
     rca_report: str
     memory_context: Optional[str]
 
-# ----------------- Subprocess Sandbox Execution -----------------
+# ----------------- Sandbox Execution -----------------
 def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
     lang = language.lower().strip()
     suffix_map = {"python": ".py", "javascript": ".js", "go": ".go", "c": ".c", "cpp": ".cpp", "java": ".java"}
@@ -65,15 +66,6 @@ def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
             cmd = ["node", temp_file]
         elif lang == "go":
             cmd = ["go", "run", temp_file]
-        elif lang in ["c", "cpp"]:
-            out_bin = temp_file + ".out"
-            compiler = "g++" if lang == "cpp" else "gcc"
-            compile_res = subprocess.run([compiler, temp_file, "-o", out_bin], capture_output=True, text=True, timeout=10)
-            if compile_res.returncode != 0:
-                return False, f"Compilation Error:\n{compile_res.stderr}"
-            cmd = [out_bin]
-        elif lang == "java":
-            cmd = ["java", temp_file]
         else:
             cmd = ["python", temp_file]
 
@@ -95,28 +87,22 @@ def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
 
 # ----------------- Multi-Agent Nodes -----------------
 def coder_agent_node(state: AgentState) -> AgentState:
-    # Updated to gemini-3.6-flash
     model = genai.GenerativeModel("gemini-3.6-flash")
     
-    # 1. Vector Memory Search
     similar_memory = search_similar_incident(state["error_log"], state["language"])
     memory_prompt = f"\n[RAG MEMORY - SIMILAR PAST INCIDENT FIX]:\n{similar_memory}\nUse this past fix as reference.\n" if similar_memory else ""
-
     retry_context = f"\n[PREVIOUS ATTEMPT FAILED]:\n{state['test_output']}\nFix logic accordingly." if state["retries"] > 0 else ""
 
     prompt = f"""
     You are an expert SRE Coder Agent. A production service crashed.
     Provide a self-healing, production-grade code patch.
-    
     Language: {state['language']}
     Broken Code:
     {state['broken_code']}
-    
     Stack Trace:
     {state['error_log']}
     {memory_prompt}
     {retry_context}
-    
     RULES:
     1. Output ONLY executable raw code without markdown backticks.
     2. Add defensive coding, logging, and null checks.
@@ -144,14 +130,12 @@ def reporter_agent_node(state: AgentState) -> AgentState:
     if state["status"] == "RESOLVED":
         store_incident(state["error_log"], state["current_patch"], state["language"])
         
-        # Updated to gemini-3.6-flash
         model = genai.GenerativeModel("gemini-3.6-flash")
         prompt = f"""
         Generate a 3-bullet SRE Root Cause Analysis (RCA):
         - Root Cause Analysis: What failed and why.
         - Fix Summary: What guard clauses were applied.
         - Verification: Confirm tests passed.
-        
         Error Log: {state['error_log']}
         Sandbox Output: {state['test_output']}
         """
@@ -176,8 +160,9 @@ sre_app = workflow.compile()
 
 # ----------------- FastAPI Endpoints -----------------
 @app.get("/")
-def root():
-    return {"message": "Autonomous SRE Swarm AI with Vector Memory is Active."}
+def serve_dashboard():
+    """Serves the clean separate index.html file"""
+    return FileResponse("index.html")
 
 @app.post("/triage", response_model=IncidentResponse)
 def triage_incident(req: IncidentRequest):
