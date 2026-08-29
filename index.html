@@ -22,23 +22,27 @@
 <body>
 
     <h1>🛡️ SRE Swarm AI</h1>
-    <p class="desc">Autonomous Incident Resolver with Vector Memory & Sandbox Verification</p>
+    <p class="desc">Autonomous 7-Language Polyglot Incident Resolver with Vector Memory & Sandbox</p>
 
-    <label>Language</label>
+    <label>Target Language</label>
     <select id="lang">
-        <option value="python">Python</option>
-        <option value="javascript">JavaScript</option>
-        <option value="go">Go</option>
+        <option value="python">Python 3 (.py)</option>
+        <option value="javascript">JavaScript / Node.js (.js)</option>
+        <option value="typescript">TypeScript (.ts)</option>
+        <option value="go">Go / Golang (.go)</option>
+        <option value="java">Java (.java)</option>
+        <option value="c">C (.c)</option>
+        <option value="cpp">C++ (.cpp)</option>
     </select>
 
-    <label>Broken Code</label>
+    <label>Broken Source Code</label>
     <textarea id="code" rows="5">def calculate_average_order(orders):
     total_amount = sum(order['amount'] for order in orders)
     return total_amount / len(orders)
 
 print(calculate_average_order([]))</textarea>
 
-    <label>Error Log</label>
+    <label>Error Log / Stack Trace</label>
     <textarea id="error" rows="2">ZeroDivisionError: division by zero in calculate_average_order at line 3</textarea>
 
     <button id="btn" onclick="runFix()">🚀 Auto-Heal & Verify Code</button>
@@ -61,7 +65,7 @@ print(calculate_average_order([]))</textarea>
             const btn = document.getElementById('btn');
             const box = document.getElementById('result');
             
-            btn.innerText = "⏳ Swarm is fixing & verifying in sandbox...";
+            btn.innerText = "⏳ Swarm is fixing & verifying in sandbox (takes ~10s)...";
             btn.disabled = true;
             box.style.display = "none";
 
@@ -71,20 +75,31 @@ print(calculate_average_order([]))</textarea>
                 error_log: document.getElementById('error').value
             };
 
+            const targetUrl = window.location.origin.includes('http') 
+                ? `${window.location.origin}/triage` 
+                : 'https://sre-swarm-ai.onrender.com/triage';
+
             try {
-                // Direct relative POST without trailing slash (Prevents 307 Redirect Drop)
-                const response = await fetch('/triage', {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 45000);
+
+                const response = await fetch(targetUrl, {
                     method: 'POST',
+                    mode: 'cors',
+                    cache: 'no-cache',
                     headers: {
                         'Accept': 'application/json',
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify(payload),
+                    signal: controller.signal
                 });
+
+                clearTimeout(timeoutId);
 
                 if (!response.ok) {
                     const errorText = await response.text();
-                    throw new Error(`Server status ${response.status}: ${errorText}`);
+                    throw new Error(`Server returned status ${response.status}: ${errorText}`);
                 }
 
                 const data = await response.json();
@@ -95,7 +110,11 @@ print(calculate_average_order([]))</textarea>
                 document.getElementById('sandbox').innerText = data.sandbox_execution_output;
                 box.style.display = "block";
             } catch (err) {
-                alert("Incident Triage Alert:\n" + err.message);
+                if (err.name === 'AbortError') {
+                    alert("Request Timed Out: AI swarm sandbox execution took longer than 45 seconds.");
+                } else {
+                    alert("Execution Notice:\n" + err.message);
+                }
             } finally {
                 btn.innerText = "🚀 Auto-Heal & Verify Code";
                 btn.disabled = false;
