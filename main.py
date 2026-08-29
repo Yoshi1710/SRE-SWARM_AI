@@ -10,21 +10,18 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 from langgraph.graph import StateGraph, END
 
-# Import Pure Python Vector Engine
 from memory import search_similar_incident, store_incident
 
 load_dotenv()
 
+# Gemini Config
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-app = FastAPI(
-    title="Autonomous SRE Swarm AI (Memory-Augmented)",
-    description="Multi-Agent Incident Remediation Engine with Vector RAG"
-)
+app = FastAPI(title="SRE Swarm AI")
 
-# ----------------- Enable CORS -----------------
+# CORS Allow (Browser connection block na ho)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,7 +30,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ----------------- Data Models -----------------
+# Request / Response Schemas
 class IncidentRequest(BaseModel):
     language: str
     broken_code: str
@@ -47,7 +44,6 @@ class IncidentResponse(BaseModel):
     verified_code_patch: str
     rca_post_mortem: str
 
-# ----------------- LangGraph State -----------------
 class AgentState(TypedDict):
     language: str
     broken_code: str
@@ -59,7 +55,7 @@ class AgentState(TypedDict):
     rca_report: str
     memory_context: Optional[str]
 
-# ----------------- Sandbox Execution -----------------
+# Sandbox Code Runner
 def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
     lang = language.lower().strip()
     suffix_map = {"python": ".py", "javascript": ".js", "go": ".go"}
@@ -70,131 +66,86 @@ def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
         temp_file = f.name
 
     try:
-        if lang == "python":
-            cmd = ["python", temp_file]
-        elif lang in ["javascript", "js"]:
-            cmd = ["node", temp_file]
-        elif lang == "go":
-            cmd = ["go", "run", temp_file]
-        else:
-            cmd = ["python", temp_file]
-
+        cmd = ["python", temp_file] if lang == "python" else (["node", temp_file] if lang in ["javascript", "js"] else ["go", "run", temp_file])
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
         if res.returncode == 0:
-            return True, res.stdout.strip() if res.stdout else "Execution succeeded without stdout."
-        else:
-            return False, f"Runtime Exit Code {res.returncode}:\n{res.stderr.strip()}"
-    except subprocess.TimeoutExpired:
-        return False, "Execution timed out (infinite loop detected)."
+            return True, res.stdout.strip() or "All sandbox tests passed."
+        return False, res.stderr.strip() or "Runtime execution failed."
     except Exception as e:
-        return False, f"Sandbox failure: {str(e)}"
+        return False, str(e)
     finally:
         if os.path.exists(temp_file):
-            try:
-                os.remove(temp_file)
-            except Exception:
-                pass
+            os.remove(temp_file)
 
-# ----------------- Multi-Agent Nodes -----------------
-def coder_agent_node(state: AgentState) -> AgentState:
+# AI Nodes
+def coder_node(state: AgentState) -> AgentState:
     model = genai.GenerativeModel("gemini-3.6-flash")
+    memory = search_similar_incident(state["error_log"], state["language"])
     
-    similar_memory = search_similar_incident(state["error_log"], state["language"])
-    memory_prompt = f"\n[RAG MEMORY - SIMILAR PAST INCIDENT FIX]:\n{similar_memory}\nUse this past fix as reference.\n" if similar_memory else ""
-    retry_context = f"\n[PREVIOUS ATTEMPT FAILED]:\n{state['test_output']}\nFix logic accordingly." if state["retries"] > 0 else ""
-
     prompt = f"""
-    You are an expert SRE Coder Agent. A production service crashed.
-    Provide a self-healing, production-grade code patch.
+    You are an expert SRE Coder Agent. Fix this code crash.
     Language: {state['language']}
-    Broken Code:
-    {state['broken_code']}
-    Stack Trace:
-    {state['error_log']}
-    {memory_prompt}
-    {retry_context}
-    RULES:
-    1. Output ONLY executable raw code without markdown backticks.
-    2. Add defensive coding, logging, and null checks.
-    3. Include self-verifying test cases with assertions at the bottom.
+    Code: {state['broken_code']}
+    Error: {state['error_log']}
+    Past Similar Fix Reference: {memory}
+    
+    Output ONLY valid executable code without markdown tags. Include assertions at the bottom to verify.
     """
-    
-    response = model.generate_content(prompt)
-    clean_code = response.text.replace("```python", "").replace("```javascript", "").replace("```go", "").replace("```", "").strip()
-    
-    state["current_patch"] = clean_code
-    state["memory_context"] = similar_memory
+    res = model.generate_content(prompt)
+    clean = res.text.replace("```python", "").replace("```javascript", "").replace("```go", "").replace("```", "").strip()
+    state["current_patch"] = clean
     return state
 
-def tester_agent_node(state: AgentState) -> AgentState:
-    is_success, output = execute_in_sandbox(state["current_patch"], state["language"])
-    state["test_output"] = output
+def tester_node(state: AgentState) -> AgentState:
+    passed, out = execute_in_sandbox(state["current_patch"], state["language"])
+    state["test_output"] = out
     state["retries"] += 1
-    state["status"] = "RESOLVED" if is_success else "FAILED"
+    state["status"] = "RESOLVED" if passed else "FAILED"
     return state
 
 def should_continue(state: AgentState) -> str:
     return "reporter" if (state["status"] == "RESOLVED" or state["retries"] >= 3) else "coder"
 
-def reporter_agent_node(state: AgentState) -> AgentState:
+def reporter_node(state: AgentState) -> AgentState:
     if state["status"] == "RESOLVED":
         store_incident(state["error_log"], state["current_patch"], state["language"])
-        
         model = genai.GenerativeModel("gemini-3.6-flash")
-        prompt = f"""
-        Generate a 3-bullet SRE Root Cause Analysis (RCA):
-        - Root Cause Analysis: What failed and why.
-        - Fix Summary: What guard clauses were applied.
-        - Verification: Confirm tests passed.
-        Error Log: {state['error_log']}
-        Sandbox Output: {state['test_output']}
-        """
-        res = model.generate_content(prompt)
+        res = model.generate_content(f"Provide 3-bullet SRE Root Cause Analysis:\nError: {state['error_log']}\nOutput: {state['test_output']}")
         state["rca_report"] = res.text.strip()
     else:
-        state["rca_report"] = "ESCALATED: Max retries exhausted without resolution."
-        
+        state["rca_report"] = "ESCALATED: Max retries exceeded."
     return state
 
-# ----------------- LangGraph Workflow -----------------
-workflow = StateGraph(AgentState)
-workflow.add_node("coder", coder_agent_node)
-workflow.add_node("tester", tester_agent_node)
-workflow.add_node("reporter", reporter_agent_node)
+# LangGraph Workflow Setup
+wf = StateGraph(AgentState)
+wf.add_node("coder", coder_node)
+wf.add_node("tester", tester_node)
+wf.add_node("reporter", reporter_node)
+wf.set_entry_point("coder")
+wf.add_edge("coder", "tester")
+wf.add_conditional_edges("tester", should_continue, {"coder": "coder", "reporter": "reporter"})
+wf.add_edge("reporter", END)
+sre_engine = wf.compile()
 
-workflow.set_entry_point("coder")
-workflow.add_edge("coder", "tester")
-workflow.add_conditional_edges("tester", should_continue, {"coder": "coder", "reporter": "reporter"})
-workflow.add_edge("reporter", END)
-sre_app = workflow.compile()
-
-# ----------------- FastAPI Endpoints -----------------
+# Routes
 @app.get("/")
-def serve_dashboard():
+def home():
     return FileResponse("index.html")
 
-@app.post("/triage", response_model=IncidentResponse)
-def triage_incident(req: IncidentRequest):
+@app.post("/triage")
+@app.post("/triage/")
+def triage(req: IncidentRequest):
     try:
-        initial_state: AgentState = {
-            "language": req.language,
-            "broken_code": req.broken_code,
-            "error_log": req.error_log,
-            "current_patch": "",
-            "test_output": "",
-            "retries": 0,
-            "status": "TRIAGING",
-            "rca_report": "",
-            "memory_context": ""
+        init_state: AgentState = {
+            "language": req.language, "broken_code": req.broken_code, "error_log": req.error_log,
+            "current_patch": "", "test_output": "", "retries": 0, "status": "TRIAGING",
+            "rca_report": "", "memory_context": ""
         }
-        final_state = sre_app.invoke(initial_state)
+        res = sre_engine.invoke(init_state)
         return IncidentResponse(
-            status=final_state["status"],
-            language=final_state["language"],
-            retries_used=final_state["retries"],
-            sandbox_execution_output=final_state["test_output"],
-            verified_code_patch=final_state["current_patch"],
-            rca_post_mortem=final_state["rca_report"]
+            status=res["status"], language=res["language"], retries_used=res["retries"],
+            sandbox_execution_output=res["test_output"], verified_code_patch=res["current_patch"],
+            rca_post_mortem=res["rca_report"]
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"SRE Swarm Internal Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
