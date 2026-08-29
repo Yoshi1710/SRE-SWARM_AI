@@ -7,10 +7,8 @@ from tools import run_polyglot_sandbox
 
 load_dotenv()
 
-# Official Gemini Configuration
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-# Primary verified model from your account
 MODEL_NAME = "gemini-2.5-flash"
 
 def call_gemini(prompt: str) -> str:

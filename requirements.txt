@@ -1,6 +1,8 @@
 fastapi
 uvicorn
-langgraph
-google-generativeai
 pydantic
+langgraph
+langchain-google-genai
+google-generativeai
 python-dotenv
+chromadb
