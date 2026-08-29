@@ -1,4 +1,6 @@
 import os
+import re
+import difflib
 import subprocess
 import tempfile
 from typing import TypedDict, Optional
@@ -18,9 +20,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-app = FastAPI(title="SRE Swarm AI Polyglot Engine")
+app = FastAPI(title="SRE Swarm AI Enterprise Diff Engine")
 
-# CORS Middleware
+# CORS Configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,6 +43,7 @@ class IncidentResponse(BaseModel):
     retries_used: int
     sandbox_execution_output: str
     verified_code_patch: str
+    unified_diff: str
     rca_post_mortem: str
 
 class AgentState(TypedDict):
@@ -48,13 +51,14 @@ class AgentState(TypedDict):
     broken_code: str
     error_log: str
     current_patch: str
+    unified_diff: str
     test_output: str
     retries: int
     status: str
     rca_report: str
     memory_context: Optional[str]
 
-# Sandbox Runner
+# 7-Language Polyglot Sandbox
 def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
     lang = language.lower().strip()
     suffix_map = {
@@ -95,7 +99,7 @@ def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
         if res.returncode == 0:
             return True, res.stdout.strip() if res.stdout else "Executed successfully with 0 errors."
-        return False, res.stderr.strip() or f"Runtime error code: {res.returncode}"
+        return False, res.stderr.strip() or f"Runtime exit code: {res.returncode}"
     except Exception as e:
         return False, str(e)
     finally:
@@ -105,33 +109,41 @@ def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
             except Exception:
                 pass
 
-# AI Nodes (Clean & Direct)
+# AI Agent Nodes
 def coder_node(state: AgentState) -> AgentState:
-    model = genai.GenerativeModel("gemini-3.6-flash")
+    model = genai.GenerativeModel("gemini-3.6-flash", generation_config={"temperature": 0.1})
     memory = search_similar_incident(state["error_log"], state["language"])
     
     prompt = f"""
-    You are an expert Code Fixer. Your job is to fix the bug in the provided code directly.
-    
+    You are an expert SRE Surgical Code Fixer.
     Target Language: {state['language']}
     Original Code:
     {state['broken_code']}
     
-    Error Log:
+    Error Trace:
     {state['error_log']}
     
-    Reference Past Fix: {memory}
+    Vector Memory Match: {memory}
     
-    STRICT RULES:
-    1. Fix the error directly in the original code.
-    2. DO NOT add logging libraries (logging, loggers, etc.).
-    3. DO NOT wrap simple code in unnecessary complex classes or helper functions.
-    4. Keep the code clean, concise, and identical to the original structure with the fix applied.
-    5. Output ONLY raw executable code without markdown backticks (no ```python).
+    INSTRUCTIONS:
+    1. Apply minimal surgical fix to eliminate the runtime crash.
+    2. Do NOT add unnecessary external libraries or wrapper classes.
+    3. Output ONLY the raw executable fixed code without markdown backticks.
     """
     res = model.generate_content(prompt)
-    clean = res.text.replace("```python", "").replace("```javascript", "").replace("```typescript", "").replace("```go", "").replace("```java", "").replace("```c", "").replace("```cpp", "").replace("```", "").strip()
-    state["current_patch"] = clean
+    clean_code = re.sub(r"^```[a-zA-Z]*\n|```$", "", res.text.strip(), flags=re.MULTILINE).strip()
+    
+    # Generate Unified Git Diff automatically
+    orig_lines = state["broken_code"].splitlines(keepends=True)
+    patch_lines = clean_code.splitlines(keepends=True)
+    diff = "".join(difflib.unified_diff(
+        orig_lines, patch_lines, 
+        fromfile="a/service_module", 
+        tofile="b/service_module"
+    ))
+    
+    state["current_patch"] = clean_code
+    state["unified_diff"] = diff if diff else "# No structural diff detected."
     return state
 
 def tester_node(state: AgentState) -> AgentState:
@@ -147,11 +159,13 @@ def should_continue(state: AgentState) -> str:
 def reporter_node(state: AgentState) -> AgentState:
     if state["status"] == "RESOLVED":
         store_incident(state["error_log"], state["current_patch"], state["language"])
-        model = genai.GenerativeModel("gemini-3.6-flash")
-        res = model.generate_content(f"State in 2 short bullet points: 1) What was broken, 2) Exactly what was changed.\nError: {state['error_log']}\nCode: {state['current_patch']}")
+        model = genai.GenerativeModel("gemini-3.6-flash", generation_config={"temperature": 0.1})
+        res = model.generate_content(
+            f"Write a 2-bullet SRE RCA:\n- Root Cause: What failed\n- Surgical Fix: What was changed\nError: {state['error_log']}"
+        )
         state["rca_report"] = res.text.strip()
     else:
-        state["rca_report"] = "ESCALATED: Max retries reached without sandbox resolution."
+        state["rca_report"] = "ESCALATED: Max retries exceeded without sandbox resolution."
     return state
 
 # LangGraph Engine
@@ -171,7 +185,7 @@ HTML_PATH = os.path.join(os.path.dirname(__file__), "index.html")
 def home():
     if os.path.exists(HTML_PATH):
         return FileResponse(HTML_PATH)
-    return {"message": "SRE Swarm Backend is active."}
+    return {"message": "SRE Swarm Backend active."}
 
 @app.post("/triage", response_model=IncidentResponse)
 @app.post("/triage/", response_model=IncidentResponse)
@@ -179,13 +193,17 @@ def triage(req: IncidentRequest):
     try:
         init_state: AgentState = {
             "language": req.language, "broken_code": req.broken_code, "error_log": req.error_log,
-            "current_patch": "", "test_output": "", "retries": 0, "status": "TRIAGING",
-            "rca_report": "", "memory_context": ""
+            "current_patch": "", "unified_diff": "", "test_output": "", "retries": 0,
+            "status": "TRIAGING", "rca_report": "", "memory_context": ""
         }
         res = sre_engine.invoke(init_state)
         return IncidentResponse(
-            status=res["status"], language=res["language"], retries_used=res["retries"],
-            sandbox_execution_output=res["test_output"], verified_code_patch=res["current_patch"],
+            status=res["status"],
+            language=res["language"],
+            retries_used=res["retries"],
+            sandbox_execution_output=res["test_output"],
+            verified_code_patch=res["current_patch"],
+            unified_diff=res["unified_diff"],
             rca_post_mortem=res["rca_report"]
         )
     except Exception as e:

@@ -3,26 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SRE Swarm AI Dashboard</title>
+    <title>SRE Swarm AI Enterprise Dashboard</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px; max-width: 850px; margin: 0 auto; }
-        h1 { color: #38bdf8; margin-bottom: 4px; }
-        p.desc { color: #94a3b8; font-size: 14px; margin-top: 0; margin-bottom: 20px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b0f19; color: #e2e8f0; padding: 24px; max-width: 900px; margin: 0 auto; }
+        h1 { color: #38bdf8; margin-bottom: 4px; font-size: 22px; }
+        p.desc { color: #94a3b8; font-size: 13px; margin-top: 0; margin-bottom: 20px; }
         label { display: block; margin: 12px 0 4px; font-weight: 600; font-size: 13px; color: #cbd5e1; }
         select, textarea { width: 100%; background: #1e293b; border: 1px solid #334155; color: white; border-radius: 8px; padding: 10px; font-family: monospace; font-size: 13px; box-sizing: border-box; }
-        select:focus, textarea:focus { outline: 1px solid #38bdf8; }
         button { background: #10b981; color: #022c22; font-weight: bold; border: none; padding: 14px; width: 100%; border-radius: 8px; cursor: pointer; margin-top: 16px; font-size: 15px; }
         button:hover { background: #34d399; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
         .box { background: #111827; border: 1px solid #1f2937; padding: 18px; border-radius: 8px; margin-top: 20px; display: none; }
         .badge { background: #065f46; color: #34d399; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 12px; }
-        pre { background: #030712; padding: 12px; border-radius: 6px; overflow-x: auto; color: #6ee7b7; font-size: 13px; white-space: pre-wrap; border: 1px solid #1f2937; }
+        pre { background: #030712; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 13px; white-space: pre-wrap; border: 1px solid #1f2937; }
+        .diff-view { color: #38bdf8; border-left: 3px solid #0284c7; }
+        .code-view { color: #6ee7b7; border-left: 3px solid #10b981; }
     </style>
 </head>
 <body>
 
-    <h1>🛡️ SRE Swarm AI</h1>
-    <p class="desc">Autonomous 7-Language Polyglot Incident Resolver with Vector Memory & Sandbox</p>
+    <h1>🛡️ SRE Swarm AI Enterprise Engine</h1>
+    <p class="desc">Autonomous Surgical Patching, Unified Git Diffs & Subprocess Verification</p>
 
     <label>Target Language</label>
     <select id="lang">
@@ -45,18 +46,24 @@ print(calculate_average_order([]))</textarea>
     <label>Error Log / Stack Trace</label>
     <textarea id="error" rows="2">ZeroDivisionError: division by zero in calculate_average_order at line 3</textarea>
 
-    <button id="btn" onclick="runFix()">🚀 Auto-Heal & Verify Code</button>
+    <button id="btn" onclick="runFix()">🚀 Auto-Heal & Generate Git Diff</button>
 
     <div id="result" class="box">
-        <div style="margin-bottom: 12px;">
-            Status: <span id="status" class="badge">RESOLVED</span>
-            <span id="retries" style="font-size: 12px; color: #94a3b8; margin-left: 10px;"></span>
+        <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+            <div>Status: <span id="status" class="badge">RESOLVED</span></div>
+            <div id="telemetry" style="font-size: 12px; color: #94a3b8;"></div>
         </div>
-        <label>Root Cause Analysis (RCA):</label>
+
+        <label>1. SRE Root Cause Analysis (RCA):</label>
         <pre id="rca" style="color: #cbd5e1;"></pre>
-        <label>Verified Fixed Code:</label>
-        <pre id="patch"></pre>
-        <label>Sandbox Output:</label>
+
+        <label>2. Unified Git Diff Patch (Enterprise Scale):</label>
+        <pre id="diff" class="diff-view"></pre>
+
+        <label>3. Full Verified Code Patch:</label>
+        <pre id="patch" class="code-view"></pre>
+
+        <label>4. Sandbox Test Execution Logs:</label>
         <pre id="sandbox" style="color: #94a3b8;"></pre>
     </div>
 
@@ -64,8 +71,9 @@ print(calculate_average_order([]))</textarea>
         async function runFix() {
             const btn = document.getElementById('btn');
             const box = document.getElementById('result');
+            const startTime = performance.now();
             
-            btn.innerText = "⏳ Swarm is fixing & verifying in sandbox (takes ~10s)...";
+            btn.innerText = "⏳ Swarm surgical patching & sandbox testing...";
             btn.disabled = true;
             box.style.display = "none";
 
@@ -80,43 +88,28 @@ print(calculate_average_order([]))</textarea>
                 : 'https://sre-swarm-ai.onrender.com/triage';
 
             try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 45000);
-
                 const response = await fetch(targetUrl, {
                     method: 'POST',
-                    mode: 'cors',
-                    cache: 'no-cache',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(payload),
-                    signal: controller.signal
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
                 });
 
-                clearTimeout(timeoutId);
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Server returned status ${response.status}: ${errorText}`);
-                }
+                if (!response.ok) throw new Error("Status: " + response.status);
 
                 const data = await response.json();
+                const totalTime = ((performance.now() - startTime) / 1000).toFixed(2);
+
                 document.getElementById('status').innerText = data.status;
-                document.getElementById('retries').innerText = `Completed in ${data.retries_used} attempt(s)`;
+                document.getElementById('telemetry').innerText = `⚡ Execution Latency: ${totalTime}s | Sandbox Retries: ${data.retries_used}`;
                 document.getElementById('rca').innerText = data.rca_post_mortem;
+                document.getElementById('diff').innerText = data.unified_diff;
                 document.getElementById('patch').innerText = data.verified_code_patch;
                 document.getElementById('sandbox').innerText = data.sandbox_execution_output;
                 box.style.display = "block";
             } catch (err) {
-                if (err.name === 'AbortError') {
-                    alert("Request Timed Out: AI swarm sandbox execution took longer than 45 seconds.");
-                } else {
-                    alert("Execution Notice:\n" + err.message);
-                }
+                alert("Execution Alert:\n" + err.message);
             } finally {
-                btn.innerText = "🚀 Auto-Heal & Verify Code";
+                btn.innerText = "🚀 Auto-Heal & Generate Git Diff";
                 btn.disabled = false;
             }
         }
