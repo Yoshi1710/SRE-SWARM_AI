@@ -2,8 +2,8 @@ import os
 import subprocess
 import tempfile
 from typing import TypedDict, Optional
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -14,14 +14,13 @@ from memory import search_similar_incident, store_incident
 
 load_dotenv()
 
-# Gemini Config
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
 app = FastAPI(title="SRE Swarm AI")
 
-# CORS Allow (Browser connection block na ho)
+# Universal CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,7 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Request / Response Schemas
+# Request & Response Models
 class IncidentRequest(BaseModel):
     language: str
     broken_code: str
@@ -55,7 +54,7 @@ class AgentState(TypedDict):
     rca_report: str
     memory_context: Optional[str]
 
-# Sandbox Code Runner
+# Isolated Sandbox Runner
 def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
     lang = language.lower().strip()
     suffix_map = {"python": ".py", "javascript": ".js", "go": ".go"}
@@ -69,15 +68,18 @@ def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
         cmd = ["python", temp_file] if lang == "python" else (["node", temp_file] if lang in ["javascript", "js"] else ["go", "run", temp_file])
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
         if res.returncode == 0:
-            return True, res.stdout.strip() or "All sandbox tests passed."
-        return False, res.stderr.strip() or "Runtime execution failed."
+            return True, res.stdout.strip() or "All sandbox verification tests passed."
+        return False, res.stderr.strip() or "Runtime execution failed in sandbox."
     except Exception as e:
         return False, str(e)
     finally:
         if os.path.exists(temp_file):
-            os.remove(temp_file)
+            try:
+                os.remove(temp_file)
+            except Exception:
+                pass
 
-# AI Nodes
+# Agent Nodes
 def coder_node(state: AgentState) -> AgentState:
     model = genai.GenerativeModel("gemini-3.6-flash")
     memory = search_similar_incident(state["error_log"], state["language"])
@@ -87,9 +89,12 @@ def coder_node(state: AgentState) -> AgentState:
     Language: {state['language']}
     Code: {state['broken_code']}
     Error: {state['error_log']}
-    Past Similar Fix Reference: {memory}
+    Past Similar Fix: {memory}
     
-    Output ONLY valid executable code without markdown tags. Include assertions at the bottom to verify.
+    RULES:
+    1. Output ONLY valid executable raw code without markdown backticks.
+    2. Add boundary checks and safe fallbacks.
+    3. Include assertions at the bottom to verify correctness.
     """
     res = model.generate_content(prompt)
     clean = res.text.replace("```python", "").replace("```javascript", "").replace("```go", "").replace("```", "").strip()
@@ -116,7 +121,7 @@ def reporter_node(state: AgentState) -> AgentState:
         state["rca_report"] = "ESCALATED: Max retries exceeded."
     return state
 
-# LangGraph Workflow Setup
+# LangGraph Workflow
 wf = StateGraph(AgentState)
 wf.add_node("coder", coder_node)
 wf.add_node("tester", tester_node)
@@ -127,13 +132,18 @@ wf.add_conditional_edges("tester", should_continue, {"coder": "coder", "reporter
 wf.add_edge("reporter", END)
 sre_engine = wf.compile()
 
-# Routes
+# Absolute path for HTML file
+HTML_PATH = os.path.join(os.path.dirname(__file__), "index.html")
+
 @app.get("/")
 def home():
-    return FileResponse("index.html")
+    if os.path.exists(HTML_PATH):
+        return FileResponse(HTML_PATH)
+    return {"message": "SRE Swarm Backend is active."}
 
-@app.post("/triage")
-@app.post("/triage/")
+# Dual endpoint registration to prevent any 307 redirect
+@app.post("/triage", response_model=IncidentResponse)
+@app.post("/triage/", response_model=IncidentResponse)
 def triage(req: IncidentRequest):
     try:
         init_state: AgentState = {
