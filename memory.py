@@ -1,71 +1,79 @@
 import os
-import chromadb
-from chromadb import Documents, EmbeddingFunction, Embeddings
+import math
 import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Google Gemini Embedding Function (Zero Local RAM consumption)
-class GeminiEmbeddingFunction(EmbeddingFunction):
-    def __call__(self, input: Documents) -> Embeddings:
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            return [[0.0] * 768 for _ in input]
-        
-        genai.configure(api_key=api_key)
-        embeddings = []
-        for text in input:
-            try:
-                res = genai.embed_content(
-                    model="models/text-embedding-004",
-                    content=text,
-                    task_type="retrieval_document"
-                )
-                embeddings.append(res['embedding'])
-            except Exception as e:
-                print(f"[Embedding Error]: {e}")
-                embeddings.append([0.0] * 768)
-        return embeddings
+# In-Memory Vector Store
+INCIDENT_MEMORY = []
 
-# Initialize In-Memory ChromaDB Client with Gemini Embeddings
-embedding_fn = GeminiEmbeddingFunction()
-client = chromadb.Client()
-
-collection = client.get_or_create_collection(
-    name="sre_incident_memory",
-    embedding_function=embedding_fn
-)
-
-def search_similar_incident(error_log: str, language: str, top_k: int = 1) -> str:
-    """Error log ke semantic meaning ke base par past verified fix dhoondhta hai."""
+def get_embedding(text: str) -> list[float]:
+    """Gemini API se text ka mathematical embedding vector nikalta hai."""
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return []
     try:
-        if collection.count() == 0:
-            return ""
-
-        results = collection.query(
-            query_texts=[error_log],
-            n_results=top_k,
-            where={"language": language}
+        genai.configure(api_key=api_key)
+        res = genai.embed_content(
+            model="models/text-embedding-004",
+            content=text,
+            task_type="retrieval_document"
         )
-
-        if results and results["documents"] and len(results["documents"][0]) > 0:
-            return results["documents"][0][0]
+        return res.get("embedding", [])
     except Exception as e:
-        print(f"[Vector DB Query Safe Fallback]: {e}")
+        print(f"[Embedding Warning]: {e}")
+        return []
+
+def cosine_similarity(v1: list[float], v2: list[float]) -> float:
+    """Do error vectors ke beech ka semantic angle (similarity score) calculate karta hai."""
+    if not v1 or not v2 or len(v1) != len(v2):
+        return 0.0
+    dot = sum(a * b for a, b in zip(v1, v2))
+    norm_a = math.sqrt(sum(a * a for a in v1))
+    norm_b = math.sqrt(sum(b * b for b in v2))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+def search_similar_incident(error_log: str, language: str, similarity_threshold: float = 0.70) -> str:
+    """Vector memory search: Past verified incident fix retrieve karta hai."""
+    try:
+        query_emb = get_embedding(error_log)
+        if not query_emb or len(INCIDENT_MEMORY) == 0:
+            return ""
+        
+        best_match = None
+        best_score = -1.0
+        
+        for item in INCIDENT_MEMORY:
+            if item.get("language", "").lower() == language.lower():
+                score = cosine_similarity(query_emb, item["embedding"])
+                if score > best_score and score >= similarity_threshold:
+                    best_score = score
+                    best_match = item
+                    
+        if best_match:
+            print(f"[Vector DB]: High similarity match found ({best_score:.2f})!")
+            return f"PAST ERROR:\n{best_match['error_log']}\n\nVERIFIED FIX:\n{best_match['verified_patch']}"
+    except Exception as e:
+        print(f"[Vector DB Safe Fallback]: {e}")
     return ""
 
 def store_incident(error_log: str, verified_patch: str, language: str):
-    """Naye pass huye code fix ko Vector DB mein save karta hai."""
+    """Naye pass huye solution ko vector memory mein save karta hai."""
     try:
-        doc_content = f"ERROR CONTEXT:\n{error_log}\n\nVERIFIED PATCH:\n{verified_patch}"
-        doc_id = f"inc_{collection.count() + 1}"
-        
-        collection.add(
-            documents=[doc_content],
-            metadatas=[{"language": language}],
-            ids=[doc_id]
-        )
-        print(f"[Vector DB]: Successfully saved {doc_id} with Gemini Embeddings.")
+        emb = get_embedding(error_log)
+        if not emb:
+            return
+        doc_id = f"inc_{len(INCIDENT_MEMORY) + 1}"
+        INCIDENT_MEMORY.append({
+            "id": doc_id,
+            "error_log": error_log,
+            "verified_patch": verified_patch,
+            "language": language,
+            "embedding": emb
+        })
+        print(f"[Vector DB]: Saved {doc_id} to semantic memory.")
     except Exception as e:
-        print(f"[Vector DB Save Safe Fallback]: {e}")
+        print(f"[Vector DB Save Warning]: {e}")
