@@ -4,6 +4,7 @@ import tempfile
 from typing import TypedDict, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -21,6 +22,15 @@ if GEMINI_API_KEY:
 app = FastAPI(
     title="Autonomous SRE Swarm AI (Memory-Augmented)",
     description="Multi-Agent Incident Remediation Engine with Vector RAG"
+)
+
+# ----------------- Enable CORS -----------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ----------------- Data Models -----------------
@@ -52,7 +62,7 @@ class AgentState(TypedDict):
 # ----------------- Sandbox Execution -----------------
 def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
     lang = language.lower().strip()
-    suffix_map = {"python": ".py", "javascript": ".js", "go": ".go", "c": ".c", "cpp": ".cpp", "java": ".java"}
+    suffix_map = {"python": ".py", "javascript": ".js", "go": ".go"}
     suffix = suffix_map.get(lang, ".py")
     
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, mode='w', encoding='utf-8') as f:
@@ -161,7 +171,6 @@ sre_app = workflow.compile()
 # ----------------- FastAPI Endpoints -----------------
 @app.get("/")
 def serve_dashboard():
-    """Serves the clean separate index.html file"""
     return FileResponse("index.html")
 
 @app.post("/triage", response_model=IncidentResponse)
