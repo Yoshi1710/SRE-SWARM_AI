@@ -7,6 +7,8 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import google.generativeai as genai
 from langgraph.graph import StateGraph, END
+
+# Import Pure Python Vector Engine
 from memory import search_similar_incident, store_incident
 
 load_dotenv()
@@ -93,7 +95,8 @@ def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
 
 # ----------------- Multi-Agent Nodes -----------------
 def coder_agent_node(state: AgentState) -> AgentState:
-    model = genai.GenerativeModel("gemini-2.5-flash")
+    # Updated to gemini-3.6-flash
+    model = genai.GenerativeModel("gemini-3.6-flash")
     
     # 1. Vector Memory Search
     similar_memory = search_similar_incident(state["error_log"], state["language"])
@@ -141,7 +144,8 @@ def reporter_agent_node(state: AgentState) -> AgentState:
     if state["status"] == "RESOLVED":
         store_incident(state["error_log"], state["current_patch"], state["language"])
         
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        # Updated to gemini-3.6-flash
+        model = genai.GenerativeModel("gemini-3.6-flash")
         prompt = f"""
         Generate a 3-bullet SRE Root Cause Analysis (RCA):
         - Root Cause Analysis: What failed and why.
