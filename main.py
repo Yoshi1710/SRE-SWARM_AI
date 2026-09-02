@@ -30,6 +30,72 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+ACTIVE_MODEL_NAME = None
+
+def get_active_model_name() -> str:
+    """Google API se available models dynamically discover karta hai."""
+    global ACTIVE_MODEL_NAME
+    if ACTIVE_MODEL_NAME:
+        return ACTIVE_MODEL_NAME
+
+    candidate_preferences = [
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-exp",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-001",
+        "gemini-1.5-flash-002",
+        "gemini-flash-latest",
+        "gemini-1.5-pro-latest",
+        "gemini-1.5-pro",
+        "gemini-pro"
+    ]
+
+    try:
+        available_models = [
+            m.name.replace("models/", "")
+            for m in genai.list_models()
+            if "generateContent" in m.supported_generation_methods
+        ]
+        print(f"[Gemini Discovery]: Available on this key: {available_models}")
+
+        for pref in candidate_preferences:
+            if pref in available_models:
+                ACTIVE_MODEL_NAME = pref
+                print(f"[Gemini Discovery]: Selected primary model -> {ACTIVE_MODEL_NAME}")
+                return ACTIVE_MODEL_NAME
+
+        if available_models:
+            ACTIVE_MODEL_NAME = available_models[0]
+            print(f"[Gemini Discovery]: Selected fallback model -> {ACTIVE_MODEL_NAME}")
+            return ACTIVE_MODEL_NAME
+    except Exception as e:
+        print(f"[Gemini Discovery Error]: {e}")
+
+    ACTIVE_MODEL_NAME = "gemini-1.5-flash-latest"
+    return ACTIVE_MODEL_NAME
+
+def call_gemini_safe(prompt: str) -> str:
+    """Multi-model fallback logic taaki kabhi 404 ya crash na ho."""
+    primary = get_active_model_name()
+    fallbacks = [primary, "gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-pro"]
+    
+    seen = set()
+    unique_models = [m for m in fallbacks if not (m in seen or seen.add(m))]
+
+    last_error = None
+    for model_id in unique_models:
+        try:
+            model = genai.GenerativeModel(model_id, generation_config={"temperature": 0.1})
+            res = model.generate_content(prompt)
+            if res and res.text:
+                return res.text.strip()
+        except Exception as e:
+            last_error = e
+            continue
+
+    raise RuntimeError(f"All model fallbacks exhausted: {last_error}")
+
 class IncidentRequest(BaseModel):
     language: str
     broken_code: str
@@ -105,18 +171,13 @@ def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
                 pass
 
 def coder_node(state: AgentState) -> AgentState:
-    # 1. ChromaDB Fast-Lookup: Pehle DB check karein
     cached_incident = search_similar_incident(state["error_log"], state["language"])
     if cached_incident["found"] and state["retries"] == 0:
-        clean_code = cached_incident["patch"]
-        state["current_patch"] = clean_code
+        state["current_patch"] = cached_incident["patch"]
         state["cached_hit"] = True
         state["rca_report"] = cached_incident["rca"]
     else:
         state["cached_hit"] = False
-        # Official stable & fast model
-        model = genai.GenerativeModel("gemini-1.5-flash", generation_config={"temperature": 0.1})
-
         prompt = f"""You are an expert SRE Code Fixer.
 Target Language: {state['language']}
 Broken Code:
@@ -129,11 +190,10 @@ INSTRUCTIONS:
 1. Apply minimal surgical fix to eliminate runtime crash.
 2. Output ONLY the raw executable fixed code without markdown fences.
 """
-        res = model.generate_content(prompt)
-        clean_code = re.sub(r"^```[a-zA-Z]*\n|```$", "", res.text.strip(), flags=re.MULTILINE).strip()
+        raw_res = call_gemini_safe(prompt)
+        clean_code = re.sub(r"^```[a-zA-Z]*\n|```$", "", raw_res, flags=re.MULTILINE).strip()
         state["current_patch"] = clean_code
 
-    # Diff Generation
     orig_lines = state["broken_code"].splitlines(keepends=True)
     patch_lines = state["current_patch"].splitlines(keepends=True)
     diff = "".join(difflib.unified_diff(
@@ -156,21 +216,14 @@ def should_continue(state: AgentState) -> str:
 
 def reporter_node(state: AgentState) -> AgentState:
     if state["status"] == "RESOLVED":
-        # Agar ChromaDB se direct uthaya tha toh dobara LLM call na karein (Latency ~0.3s)
         if not state.get("cached_hit"):
-            model = genai.GenerativeModel("gemini-1.5-flash", generation_config={"temperature": 0.1})
-            res = model.generate_content(
-                f"Write a 2-bullet SRE RCA:\n- Root Cause: What failed\n- Surgical Fix: What was changed\nError: {state['error_log']}"
-            )
-            state["rca_report"] = res.text.strip()
-            
-            # Future runs ke liye ChromaDB mein permanently store karein
+            prompt = f"Write a 2-bullet SRE RCA:\n- Root Cause: What failed\n- Surgical Fix: What was changed\nError: {state['error_log']}"
+            state["rca_report"] = call_gemini_safe(prompt)
             store_incident(state["error_log"], state["current_patch"], state["language"], state["rca_report"])
     else:
         state["rca_report"] = "ESCALATED: Sandbox verification failed after maximum retries."
     return state
 
-# LangGraph Engine
 wf = StateGraph(AgentState)
 wf.add_node("coder", coder_node)
 wf.add_node("tester", tester_node)
@@ -182,6 +235,12 @@ wf.add_edge("reporter", END)
 sre_engine = wf.compile()
 
 HTML_PATH = os.path.join(os.path.dirname(__file__), "index.html")
+
+@app.on_event("startup")
+def startup_event():
+    print("[Startup]: Discovering active Gemini models...")
+    model_name = get_active_model_name()
+    print(f"[Startup]: Ready to serve using engine: {model_name}")
 
 @app.get("/")
 def home():
