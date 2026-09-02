@@ -22,7 +22,6 @@ if GEMINI_API_KEY:
 
 app = FastAPI(title="SRE Swarm AI Enterprise Diff Engine")
 
-# CORS Configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,7 +30,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Schemas
 class IncidentRequest(BaseModel):
     language: str
     broken_code: str
@@ -56,28 +54,25 @@ class AgentState(TypedDict):
     retries: int
     status: str
     rca_report: str
-    memory_context: Optional[str]
+    cached_hit: bool
 
-# 7-Language Polyglot Sandbox
 def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
     lang = language.lower().strip()
     suffix_map = {
-        "python": ".py", "javascript": ".js", "typescript": ".ts",
+        "python": ".py", "javascript": ".js", "typescript": ".js",
         "go": ".go", "java": ".java", "c": ".c", "cpp": ".cpp"
     }
     suffix = suffix_map.get(lang, ".py")
-    
+
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, mode='w', encoding='utf-8') as f:
         f.write(code)
         temp_file = f.name
 
     try:
         if lang == "python":
-            cmd = ["python", temp_file]
-        elif lang in ["javascript", "js"]:
+            cmd = ["python3", temp_file]
+        elif lang in ["javascript", "js", "typescript"]:
             cmd = ["node", temp_file]
-        elif lang in ["typescript", "ts"]:
-            cmd = ["npx", "ts-node", temp_file]
         elif lang == "go":
             cmd = ["go", "run", temp_file]
         elif lang in ["c", "cpp"]:
@@ -94,9 +89,9 @@ def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
             class_name = os.path.splitext(os.path.basename(temp_file))[0]
             cmd = ["java", "-cp", os.path.dirname(temp_file), class_name]
         else:
-            cmd = ["python", temp_file]
+            cmd = ["python3", temp_file]
 
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
         if res.returncode == 0:
             return True, res.stdout.strip() if res.stdout else "Executed successfully with 0 errors."
         return False, res.stderr.strip() or f"Runtime exit code: {res.returncode}"
@@ -109,41 +104,44 @@ def execute_in_sandbox(code: str, language: str) -> tuple[bool, str]:
             except Exception:
                 pass
 
-# AI Agent Nodes
 def coder_node(state: AgentState) -> AgentState:
-    model = genai.GenerativeModel("gemini-3.6-flash", generation_config={"temperature": 0.1})
-    memory = search_similar_incident(state["error_log"], state["language"])
-    
-    prompt = f"""
-    You are an expert SRE Surgical Code Fixer.
-    Target Language: {state['language']}
-    Original Code:
-    {state['broken_code']}
-    
-    Error Trace:
-    {state['error_log']}
-    
-    Vector Memory Match: {memory}
-    
-    INSTRUCTIONS:
-    1. Apply minimal surgical fix to eliminate the runtime crash.
-    2. Do NOT add unnecessary external libraries or wrapper classes.
-    3. Output ONLY the raw executable fixed code without markdown backticks.
-    """
-    res = model.generate_content(prompt)
-    clean_code = re.sub(r"^```[a-zA-Z]*\n|```$", "", res.text.strip(), flags=re.MULTILINE).strip()
-    
-    # Generate Unified Git Diff automatically
+    # 1. ChromaDB Fast-Lookup: Pehle DB check karein
+    cached_incident = search_similar_incident(state["error_log"], state["language"])
+    if cached_incident["found"] and state["retries"] == 0:
+        clean_code = cached_incident["patch"]
+        state["current_patch"] = clean_code
+        state["cached_hit"] = True
+        state["rca_report"] = cached_incident["rca"]
+    else:
+        state["cached_hit"] = False
+        # Official stable & fast model
+        model = genai.GenerativeModel("gemini-1.5-flash", generation_config={"temperature": 0.1})
+
+        prompt = f"""You are an expert SRE Code Fixer.
+Target Language: {state['language']}
+Broken Code:
+{state['broken_code']}
+
+Error Trace:
+{state['error_log']}
+
+INSTRUCTIONS:
+1. Apply minimal surgical fix to eliminate runtime crash.
+2. Output ONLY the raw executable fixed code without markdown fences.
+"""
+        res = model.generate_content(prompt)
+        clean_code = re.sub(r"^```[a-zA-Z]*\n|```$", "", res.text.strip(), flags=re.MULTILINE).strip()
+        state["current_patch"] = clean_code
+
+    # Diff Generation
     orig_lines = state["broken_code"].splitlines(keepends=True)
-    patch_lines = clean_code.splitlines(keepends=True)
+    patch_lines = state["current_patch"].splitlines(keepends=True)
     diff = "".join(difflib.unified_diff(
-        orig_lines, patch_lines, 
-        fromfile="a/service_module", 
+        orig_lines, patch_lines,
+        fromfile="a/service_module",
         tofile="b/service_module"
     ))
-    
-    state["current_patch"] = clean_code
-    state["unified_diff"] = diff if diff else "# No structural diff detected."
+    state["unified_diff"] = diff if diff else "# No structural changes required."
     return state
 
 def tester_node(state: AgentState) -> AgentState:
@@ -158,14 +156,18 @@ def should_continue(state: AgentState) -> str:
 
 def reporter_node(state: AgentState) -> AgentState:
     if state["status"] == "RESOLVED":
-        store_incident(state["error_log"], state["current_patch"], state["language"])
-        model = genai.GenerativeModel("gemini-3.6-flash", generation_config={"temperature": 0.1})
-        res = model.generate_content(
-            f"Write a 2-bullet SRE RCA:\n- Root Cause: What failed\n- Surgical Fix: What was changed\nError: {state['error_log']}"
-        )
-        state["rca_report"] = res.text.strip()
+        # Agar ChromaDB se direct uthaya tha toh dobara LLM call na karein (Latency ~0.3s)
+        if not state.get("cached_hit"):
+            model = genai.GenerativeModel("gemini-1.5-flash", generation_config={"temperature": 0.1})
+            res = model.generate_content(
+                f"Write a 2-bullet SRE RCA:\n- Root Cause: What failed\n- Surgical Fix: What was changed\nError: {state['error_log']}"
+            )
+            state["rca_report"] = res.text.strip()
+            
+            # Future runs ke liye ChromaDB mein permanently store karein
+            store_incident(state["error_log"], state["current_patch"], state["language"], state["rca_report"])
     else:
-        state["rca_report"] = "ESCALATED: Max retries exceeded without sandbox resolution."
+        state["rca_report"] = "ESCALATED: Sandbox verification failed after maximum retries."
     return state
 
 # LangGraph Engine
@@ -194,7 +196,7 @@ def triage(req: IncidentRequest):
         init_state: AgentState = {
             "language": req.language, "broken_code": req.broken_code, "error_log": req.error_log,
             "current_patch": "", "unified_diff": "", "test_output": "", "retries": 0,
-            "status": "TRIAGING", "rca_report": "", "memory_context": ""
+            "status": "TRIAGING", "rca_report": "", "cached_hit": False
         }
         res = sre_engine.invoke(init_state)
         return IncidentResponse(
@@ -207,4 +209,5 @@ def triage(req: IncidentRequest):
             rca_post_mortem=res["rca_report"]
         )
     except Exception as e:
+        print(f"[Triage Internal Error]: {e}")
         raise HTTPException(status_code=500, detail=str(e))

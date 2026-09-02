@@ -2,7 +2,6 @@ FROM python:3.10-slim-bookworm
 
 WORKDIR /app
 
-# Install polyglot execution runtimes (C/C++, Node.js, Go, Java)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
@@ -15,6 +14,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+
+# ChromaDB persistence directory
+RUN mkdir -p /app/chroma_db
 
 EXPOSE 8000
 
