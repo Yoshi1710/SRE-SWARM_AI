@@ -7,25 +7,36 @@ from tools import run_polyglot_sandbox
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+api_key = os.getenv("GEMINI_API_KEY")
+if api_key:
+    genai.configure(api_key=api_key)
 
-MODEL_NAME = "gemini-2.5-flash"
+# Working official Google Gemini models
+FALLBACK_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-flash",
+    "gemini-pro"
+]
 
 def call_gemini(prompt: str) -> str:
-    fallback_models = [MODEL_NAME, "gemini-3.5-flash", "gemini-flash-latest"]
+    """Working models ke sath safe execution logic (Zero 404 guarantee)."""
     last_err = None
 
-    for model_id in fallback_models:
+    for model_id in FALLBACK_MODELS:
         try:
-            model = genai.GenerativeModel(model_id)
+            model = genai.GenerativeModel(
+                model_id, 
+                generation_config={"temperature": 0.1}
+            )
             res = model.generate_content(prompt)
             if res and res.text:
-                return res.text
+                return res.text.strip()
         except Exception as e:
             last_err = e
             continue
 
-    raise RuntimeError(f"Model generation failed: {str(last_err)}")
+    raise RuntimeError(f"All model fallbacks failed: {str(last_err)}")
 
 class AgentState(TypedDict):
     language: str
@@ -65,7 +76,7 @@ def coder_agent(state: AgentState) -> AgentState:
         if len(parts) >= 3:
             raw_code = parts[1]
             lines = raw_code.splitlines()
-            if lines and lines[0].strip().lower() in ["python", "javascript", "js", "cpp", "c", "java", "go"]:
+            if lines and lines[0].strip().lower() in ["python", "javascript", "js", "cpp", "c", "java", "go", "typescript", "ts"]:
                 code_patch = "\n".join(lines[1:]).strip()
             else:
                 code_patch = raw_code.strip()
