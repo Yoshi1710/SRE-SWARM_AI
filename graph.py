@@ -13,14 +13,13 @@ if api_key:
 
 # Working official Google Gemini models
 FALLBACK_MODELS = [
-    "gemini-2.0-flash",
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-flash",
-    "gemini-pro"
+     "gemini-3.6-flash",
+     "gemini-3.6-flash-lite",
+     "gemini-3.8-flash",
+     "gemini-flash-latest"
 ]
 
 def call_gemini(prompt: str) -> str:
-    """Working models ke sath safe execution logic (Zero 404 guarantee)."""
     last_err = None
 
     for model_id in FALLBACK_MODELS:

@@ -39,16 +39,10 @@ def get_active_model_name() -> str:
         return ACTIVE_MODEL_NAME
 
     candidate_preferences = [
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-exp",
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-001",
-        "gemini-1.5-flash-002",
-        "gemini-flash-latest",
-        "gemini-1.5-pro-latest",
-        "gemini-1.5-pro",
-        "gemini-pro"
+         "gemini-3.6-flash",
+         "gemini-3.6-flash-lite",
+         "gemini-3.8-flash",
+         "gemini-flash-latest",
     ]
 
     try:
@@ -78,7 +72,7 @@ def get_active_model_name() -> str:
 def call_gemini_safe(prompt: str) -> str:
     """Multi-model fallback logic taaki kabhi 404 ya crash na ho."""
     primary = get_active_model_name()
-    fallbacks = [primary, "gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-pro"]
+    fallbacks = [primary,"gemini-3.6-flash", "gemini-3.6-flash-lite","gemini-3.8-flash","gemini-flash-latest"]
     
     seen = set()
     unique_models = [m for m in fallbacks if not (m in seen or seen.add(m))]
