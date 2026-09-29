@@ -1,230 +1,818 @@
-# 🛡️ SRE Swarm AI: Autonomous Polyglot Incident Remediation Engine
+Yes — now I understand exactly what you mean.
 
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115.0-009688.svg?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![LangGraph](https://img.shields.io/badge/Orchestration-LangGraph_State_Machine-blue.svg?style=flat)](https://github.com/langchain-ai/langgraph)
-[![LLM Engine](https://img.shields.io/badge/LLM-Google_Gemini_3.6_Flash-orange.svg?style=flat&logo=google)](https://ai.google.dev)
-[![Vector Memory](https://img.shields.io/badge/Vector_DB-ChromaDB_RAG-purple.svg?style=flat)](https://www.trychroma.com)
-[![Sandbox](https://img.shields.io/badge/Sandbox-Isolated_Subprocess_Execution-yellow.svg?style=flat&logo=gnubash)](https://www.linux.org)
-[![Deployment](https://img.shields.io/badge/Render-Live_Production-46E3B7.svg?style=flat&logo=render)](https://sre-swarm-ai.onrender.com/)
+You want **ONE single code block from the first `# SRE Swarm AI` line to the very last line**, with **no separate code blocks anywhere inside it**. The `bash`, `json`, `python`, `text`, etc. sections should just be normal fenced content *inside that one README block*, not individually fenced by Markdown.
 
-An enterprise-grade, autonomous Site Reliability Engineering (SRE) microservice designed to ingest production runtime crashes, perform RAG-driven vector memory lookups, apply surgical AST-level bug fixes, and rigorously verify code patches inside an isolated polyglot execution sandbox before generating structured Root Cause Analysis (RCA) post-mortems.
+Here is the complete README as **ONE single copy-paste block**:
 
-🔗 **Live Production Dashboard:** [https://sre-swarm-ai.onrender.com/](https://sre-swarm-ai.onrender.com/)  
-📖 **Interactive Swagger Docs:** [https://sre-swarm-ai.onrender.com/docs](https://sre-swarm-ai.onrender.com/docs)
+```markdown
+# SRE Swarm AI
 
----
+### LLM-Assisted SRE Incident Remediation and Verification System
 
-## 📌 Executive Overview & Core Problem
+SRE Swarm AI is an SRE-oriented automation system that uses a Large Language Model (LLM) to analyze software failures, generate a candidate code fix, execute the modified code, use execution feedback for bounded retries, retrieve previously resolved incidents, and return a structured remediation report.
 
-Traditional LLM coding assistants (ChatGPT, Copilot, Web Chatbots) operate as open-loop text generators:
-1. **Zero Execution Verification:** They generate hallucinated syntax or partial logic without compiling or running the code.
-2. **Repetitive Human-in-the-Loop Toil:** Engineers must manually copy-paste errors back and forth in a slow hit-and-trial loop.
-3. **Destructive Rewrites:** LLMs frequently rewrite whole 1,000+ line files, breaking surrounding production logic.
-4. **Zero Knowledge Retention:** LLMs forget past fixes across sessions.
+The core engineering idea is simple:
 
-**SRE Swarm AI** transforms this paradigm into a **closed-loop, self-healing state machine**. It treats code fixing as an isolated compiler problem: patches are only marked `RESOLVED` when real Linux compiler/runtime exit codes return `0` with all unit assertions passing.
+> An LLM-generated fix is treated as a candidate remediation until execution provides evidence that the generated code runs successfully.
+
+The project connects incident analysis, historical incident retrieval, code remediation, execution verification, retry logic, unified diff generation, root-cause analysis, and incident memory into a single workflow.
 
 ---
 
-## 🏗️ System Architecture & Multi-Agent Workflow
+## 🚀 Live Demo
 
-The system is orchestrated using a stateful **LangGraph StateGraph**, driving a cyclic self-correction loop:
+**Live API:**  
+https://sre-swarm-ai.onrender.com/
 
-```text
-                     ┌────────────────────────────────────────┐
-                     │   Incoming Incident Payload            │
-                     │   (Language, Broken Code, Error Log)   │
-                     └───────────────────┬────────────────────┘
-                                         │
-                                         ▼
-                     ┌────────────────────────────────────────┐
-                     │   Vector Memory RAG (ChromaDB)         │
-                     │   Cosine Similarity Past Fix Retrieval │
-                     └───────────────────┬────────────────────┘
-                                         │
-                                         ▼
-                     ┌────────────────────────────────────────┐
-                     │   1. Coder Node (Gemini 3.6 Flash)     │ ◄───────────┐
-                     │   Surgical Patch + Unified Diff (0.1T) │             │
-                     └───────────────────┬────────────────────┘             │ (Retries < 3)
-                                         │                                  │ Feedback Loop:
-                                         ▼                                  │ Assertion Error Log
-                     ┌────────────────────────────────────────┐             │
-                     │   2. Polyglot Sandbox Execution Node   │             │
-                     │   Isolated Subprocess Temp Runner      │             │
-                     └───────────────────┬────────────────────┘             │
-                                         │                                  │
-                                         ▼                                  │
-                              [ Sandbox Tests Pass? ]                       │
-                                 /              \                           │
-                       YES (Exit 0)            NO (Exit != 0) ──────────────┘
-                             /                    \
-                            /                 (Retries >= 3)
-                           ▼                        \
-        ┌──────────────────────────────────┐         ▼
-        │   3. Reporter Node (RCA)         │   ┌──────────────────────────────────┐
-        │   - Index Fix in Vector Memory   │   │   Failsafe Circuit Breaker       │
-        │   - 3-Bullet SRE RCA Summary     │   │   - Status: ESCALATED            │
-        │   - Status: RESOLVED             │   │   - Prevent Memory Poisoning     │
-        └──────────────────┬───────────────┘   └─────────────────┬────────────────┘
-                           │                                     │
-                           └─────────────────┬───────────────────┘
-                                             ▼
-                     ┌────────────────────────────────────────┐
-                     │   Structured Incident Response Output  │
-                     └────────────────────────────────────────┘
-```
+**Swagger API Documentation:**  
+https://sre-swarm-ai.onrender.com/docs
 
 ---
 
-## ⚡ Key Engineering Features
+## 🎯 Problem Statement
 
-### 1. 7-Language Polyglot Sandbox Runner
-Isolated tempfile-based execution sandbox supporting compilation and runtime evaluation across 7 core programming ecosystems:
-* **Python 3** (`python3`)
-* **JavaScript** (`node`)
-* **TypeScript** (`npx ts-node`)
-* **Go / Golang** (`go run`)
-* **Java** (`javac` compilation + `java` JVM execution)
-* **C** (`gcc` compilation + binary execution)
-* **C++** (`g++` compilation + binary execution)
+When a software service fails, an engineer typically needs to:
 
-### 2. Unified Git Diff Engine (`.patch`)
-Instead of risky whole-file rewrites, the engine leverages `difflib` to generate production-grade standard Unified Git Diffs (`+`/`-`), allowing instant staging with `git apply patch.diff`.
+1. Understand the error.
+2. Identify the faulty part of the code.
+3. Determine a possible remediation.
+4. Apply the change.
+5. Execute the modified code.
+6. Inspect the resulting output or error.
+7. Iterate if the remediation does not work.
+8. Document the root cause and resolution.
 
-### 3. ChromaDB Vector Memory (Lifelong RAG Cache)
-Successful incident resolutions are embedded into a local vector store. Future recurring crashes trigger sub-second similarity lookups, reducing LLM reasoning latency to zero retries.
+Modern LLM-powered coding systems can assist with many of these tasks. SRE Swarm AI focuses specifically on implementing an SRE-oriented remediation workflow around an LLM.
 
-### 4. Deterministic Low-Temperature Guardrails (`temperature: 0.1`)
-LLM hallucination is suppressed by locking sampling temperature to `0.1`, guaranteeing strict syntax adherence and minimal token consumption.
+The application therefore combines:
 
-### 5. Circuit Breaker & Anti-Poisoning Escalation
-* A hard limit of **3 sandbox retries** prevents runaway execution loops and API quota exhaustion.
-* Failed patches are strictly blocked from being written to Vector DB, ensuring memory purity.
-* When automated resolution fails, the incident is safely marked `ESCALATED` with a complete diagnostic triage payload for human on-call engineers.
+- LLM-assisted incident analysis
+- Candidate code remediation
+- Automated execution feedback
+- Bounded retry-based correction
+- Historical incident retrieval
+- Verified patch generation
+- Unified diff generation
+- Structured incident reporting
+- Root-cause analysis
+- Escalation when verification fails
 
----
-
-## 🛠️ Tech Stack & Dependencies
-
-| Layer | Technologies Used |
-| :--- | :--- |
-| **Backend Framework** | FastAPI, Uvicorn, Pydantic V2 |
-| **Agent Orchestration** | LangGraph, LangChain Core |
-| **LLM Inference** | Google Gemini 3.6 Flash (`google-generativeai`) |
-| **Vector Storage** | ChromaDB, Sentence-Transformers / Cosine Embeddings |
-| **Sandbox Execution** | Linux Subprocess, Dynamic TempFS, AST Inspection |
-| **Frontend UI** | Vanilla HTML5, CSS3 Glassmorphism, Asynchronous Fetch API |
-| **Deployment** | Render Web Services (Dockerized Linux Container) |
+The project does not claim that general-purpose coding agents cannot perform similar operations. Its purpose is to demonstrate how an SRE-specific remediation and verification workflow can be designed and implemented as an independent application.
 
 ---
 
-## 🚀 Quickstart & Local Setup
+## 🧠 What Does SRE Swarm AI Do?
 
-### 1. Clone the Repository
-```bash
-git clone [https://github.com/your-username/sre-swarm-ai.git](https://github.com/your-username/sre-swarm-ai.git)
-cd sre-swarm-ai
-```
+The system accepts three primary inputs:
 
-### 2. Create and Activate Virtual Environment
-```bash
-# Windows
-python -m venv venv
-venv\Scripts\activate
+- Programming language
+- Broken source code
+- Error log
 
-# Linux / macOS
-python3 -m venv venv
-source venv/bin/activate
-```
+It then follows this workflow:
 
-### 3. Install Dependencies
-```bash
-pip install -r requirements.txt
-```
+Incident Input
+→ Historical Incident Search
+→ Candidate Fix Generation or Cached Fix Retrieval
+→ Code Execution
+→ Execution Result Analysis
+→ Retry if Required
+→ Verification
+→ RCA Generation
+→ Incident Memory Storage
+→ Structured Response
 
-### 4. Configure Environment Variables
-Create a `.env` file in the root directory:
-```env
-GEMINI_API_KEY=your_gemini_api_key_here
-PORT=8000
-```
-
-### 5. Start the SRE Engine
-```bash
-uvicorn main:app --reload --port 8000
-```
-Open your browser at `http://localhost:8000/` to launch the interactive UI dashboard.
+The workflow is orchestrated using LangGraph.
 
 ---
 
-## 📡 API Reference
+## ⚙️ Core Workflow
 
-### Trigger Automated Incident Triage
-`POST /triage`
+### 1. Incident Intake
 
-#### Request Body
-```json
-{
-  "language": "python",
-  "broken_code": "def calculate_average_order(orders):\n    total_amount = sum(order['amount'] for order in orders)\n    return total_amount / len(orders)\n\nprint(calculate_average_order([]))",
-  "error_log": "ZeroDivisionError: division by zero in calculate_average_order at line 3"
-}
-```
+The `/triage` API endpoint receives the programming language, source code, and error log.
 
-#### Response Body (200 OK)
-```json
-{
-  "status": "RESOLVED",
-  "language": "python",
-  "retries_used": 1,
-  "sandbox_execution_output": "All sandbox verification tests passed.",
-  "verified_code_patch": "def calculate_average_order(orders):\n    if not orders:\n        return 0.0\n    total_amount = sum(order.get('amount', 0) for order in orders)\n    return total_amount / len(orders)\n\nassert calculate_average_order([]) == 0.0",
-  "unified_diff": "--- a/service_module\n+++ b/service_module\n@@ -1,3 +1,5 @@\n def calculate_average_order(orders):\n+    if not orders:\n+        return 0.0\n-    total_amount = sum(order['amount'] for order in orders)\n+    total_amount = sum(order.get('amount', 0) for order in orders)\n     return total_amount / len(orders)",
-  "rca_post_mortem": "* Root Cause: Division by zero when empty order sequence passed to len(orders).\n* Surgical Fix: Injected defensive empty sequence guard clause returning 0.0."
-}
-```
+Example request structure:
+
+    {
+      "language": "python",
+      "broken_code": "def add(a, b): return a + b",
+      "error_log": "TypeError: unsupported operand type(s) for +"
+    }
 
 ---
 
-## 📊 Performance & Operational Metrics
+### 2. Historical Incident Retrieval
 
-* **Mean Time to Remediate (MTTR):** Reduced from ~15 minutes (manual engineer triage) to **under 4.5 seconds** (autonomous swarm triage).
-* **Sandbox Verification Pass Rate:** >95% first-pass resolution for common production syntax, null pointer, boundary, and type errors.
-* **Token Efficiency:** Low-temperature targeted patching consumes **<500 tokens per triage invocation**.
+Before generating a new remediation, the system searches its persistent incident memory.
+
+The memory layer uses:
+
+- ChromaDB
+- Persistent local storage
+- Cosine similarity
+- Gemini-supported embeddings when available
+
+The search is performed using the reported error and programming language.
+
+If a sufficiently similar previously verified incident is found, the stored verified patch and RCA can be reused.
+
+This allows the system to use previously resolved incidents as a source of operational knowledge.
 
 ---
 
-## 🛡️ Production Integration (FastAPI Middleware)
+### 3. LLM-Assisted Code Remediation
 
-To integrate SRE Swarm AI into an existing FastAPI production microservice, attach this exception middleware:
+If a suitable historical incident is not available, Gemini is used to generate a candidate code correction.
 
-```python
-import traceback
-import requests
-from fastapi import FastAPI, Request
+The remediation prompt is designed to encourage:
 
-app = FastAPI()
-SWARM_URL = "[https://sre-swarm-ai.onrender.com/triage](https://sre-swarm-ai.onrender.com/triage)"
+- Minimal changes
+- Surgical fixes
+- Executable source code
+- Avoidance of unnecessary modifications
+- Consideration of the supplied error
 
-@app.middleware("http")
-async def auto_sre_healing_middleware(request: Request, call_next):
-    try:
-        return await call_next(request)
-    except Exception as exc:
-        stack_trace = traceback.format_exc()
-        try:
-            requests.post(SWARM_URL, json={
-                "language": "python",
-                "broken_code": open(__file__).read(),
-                "error_log": stack_trace
-            }, timeout=10)
-        except Exception:
-            pass
-        raise exc
+The current generation temperature is set to `0.1`.
+
+The LLM-generated code is still considered a candidate until it passes execution verification.
+
+---
+
+### 4. Execution Verification
+
+The generated source code is executed automatically.
+
+The system does not simply assume that an LLM-generated response is correct.
+
+Instead, it observes the actual process result.
+
+A successful process exit is treated as successful execution verification.
+
+If the generated code fails, the resulting execution error becomes feedback for another remediation attempt.
+
+---
+
+### 5. Bounded Retry Loop
+
+The current workflow allows a maximum of three remediation attempts.
+
+The process is conceptually:
+
+    Generate Fix
+          ↓
+       Execute
+          ↓
+    ┌─────┴─────┐
+    │           │
+  Success     Failure
+    │           │
+    ▼           ▼
+  Report    Use Error Feedback
+                │
+                ▼
+          Generate New Fix
+                │
+                ▼
+             Execute
+                │
+              ...
+
+The retry limit prevents an uncontrolled autonomous loop.
+
+If the maximum number of attempts is reached without successful execution, the incident is escalated.
+
+---
+
+### 6. Unified Diff Generation
+
+The application compares the original source code with the generated source code using Python's `difflib`.
+
+This produces a unified diff showing the actual modification.
+
+Example:
+
+    - tax_rate = employee["tax_rate"]
+    + tax_rate = float(employee["tax_rate"])
+
+The diff makes the remediation easier to inspect than returning only the complete modified source code.
+
+---
+
+### 7. Root Cause Analysis
+
+After successful verification, the system generates a concise root-cause analysis and post-mortem using the LLM.
+
+The RCA is returned as part of the structured API response and can also be stored with the incident.
+
+---
+
+### 8. Incident Memory
+
+Successfully processed incidents can be stored in ChromaDB.
+
+The stored information includes:
+
+- Error log
+- Programming language
+- Verified patch
+- RCA
+
+A future incident with a sufficiently similar error can therefore retrieve an existing verified remediation.
+
+---
+
+# 🧩 Architecture
+
+The current application follows this architecture:
+
+    FastAPI
+       │
+       ▼
+    /triage Endpoint
+       │
+       ▼
+    LangGraph Workflow
+       │
+       ├── Historical Incident Search
+       │          │
+       │          ▼
+       │      ChromaDB
+       │
+       ├── Gemini Code Remediation
+       │
+       ├── Code Execution
+       │
+       ├── Retry Decision
+       │
+       └── RCA / Reporting
+       │
+       ▼
+    Structured JSON Response
+
+---
+
+# 🛠️ Technology Stack
+
+| Technology | Purpose |
+|---|---|
+| Python | Core application language |
+| FastAPI | REST API |
+| LangGraph | Workflow orchestration |
+| Google Gemini | LLM-based code analysis and remediation |
+| ChromaDB | Persistent incident memory |
+| Pydantic | Request/response validation |
+| Uvicorn | ASGI server |
+| python-dotenv | Environment configuration |
+| difflib | Unified diff generation |
+| subprocess | Program execution |
+
+---
+
+# 🤖 Gemini Configuration
+
+The application dynamically discovers available Gemini models and uses a preferred model list.
+
+Current preferred models include:
+
+- `gemini-3.6-flash`
+- `gemini-3.6-flash-lite`
+- `gemini-3.8-flash`
+- `gemini-flash-latest`
+
+The application attempts to select an available model and includes fallback handling.
+
+The exact model selected at runtime depends on model availability and API configuration.
+
+The deployed service has been tested with the Gemini Flash model configuration available to the application.
+
+---
+
+# 💾 Incident Memory
+
+SRE Swarm AI uses ChromaDB for persistent incident storage.
+
+The collection used by the application is:
+
+    sre_incident_memory
+
+The configured similarity metric is:
+
+    cosine
+
+The system attempts to use Gemini-supported embedding models when available.
+
+Preferred embedding models include:
+
+    models/text-embedding-004
+    models/embedding-001
+
+A deterministic local fallback vector is also implemented when the embedding API is unavailable.
+
+### Important limitation
+
+The local fallback is a technical availability fallback and should not be considered equivalent to a semantic embedding model.
+
+---
+
+# 🔄 Supported Execution Languages
+
+The current primary execution implementation supports:
+
+| Language | Execution Method |
+|---|---|
+| Python | Python interpreter |
+| JavaScript | Node.js |
+| Go | `go run` |
+| Java | `javac` + `java` |
+| C | GCC compilation + execution |
+| C++ | G++ compilation + execution |
+
+TypeScript should not currently be described as independently verified runtime support because the primary execution implementation does not provide a dedicated TypeScript transpilation pipeline.
+
+---
+
+# ⚠️ Execution Environment
+
+The current implementation uses temporary files and local subprocess execution.
+
+This is suitable for demonstrating the remediation workflow, but it should not be considered a hardened security sandbox.
+
+The current system does not provide complete container or VM-level isolation.
+
+Running arbitrary untrusted code against a production deployment would therefore require additional security controls.
+
+Potential production improvements include:
+
+- Container isolation
+- CPU limits
+- Memory limits
+- Network restrictions
+- Filesystem restrictions
+- Non-root execution
+- Process isolation
+- Seccomp/AppArmor-style controls
+- Job-level authentication
+- Authorization
+- Resource quotas
+
+---
+
+# 📡 API
+
+## POST `/triage`
+
+The `/triage` endpoint is the primary incident remediation endpoint.
+
+### Request
+
+    {
+      "language": "python",
+      "broken_code": "def add_numbers(a, b):\n    return a + b\n\nprint(add_numbers(10, \"5\"))",
+      "error_log": "TypeError: unsupported operand type(s) for +: 'int' and 'str'"
+    }
+
+### Response Structure
+
+    {
+      "status": "RESOLVED",
+      "language": "python",
+      "retries_used": 1,
+      "sandbox_execution_output": "15",
+      "verified_code_patch": "...",
+      "unified_diff": "...",
+      "rca_post_mortem": "..."
+    }
+
+The exact response depends on the supplied source code, error, execution result, and model response.
+
+---
+
+# 🧪 Example Incident
+
+Consider the following code:
+
+    def calculate_salary(employee):
+        base_salary = employee["base_salary"]
+        bonus = employee["bonus"]
+        tax_rate = employee["tax_rate"]
+
+        gross_salary = base_salary + bonus
+        tax = gross_salary * tax_rate / 100
+        net_salary = gross_salary - tax
+
+        return round(net_salary, 2)
+
+Suppose the input contains:
+
+    "tax_rate": "10"
+
+The program can produce a type-related error because the tax rate is represented as a string.
+
+A possible remediation generated by the system is:
+
+    tax_rate = float(employee["tax_rate"])
+
+The modified code is then executed.
+
+If execution succeeds, the system can return:
+
+- The verified code
+- Unified diff
+- Execution output
+- Retry count
+- RCA
+- Resolution status
+
+---
+
+# 📁 Project Structure
+
+    SRE-SWARM_AI/
+    │
+    ├── main.py
+    ├── graph.py
+    ├── memory.py
+    ├── tools.py
+    ├── test_api.py
+    ├── requirements.txt
+    ├── README.md
+    ├── .env
+    └── chroma_db/
+
+### `main.py`
+
+Primary FastAPI application and deployed LangGraph workflow.
+
+Contains:
+
+- API endpoint
+- Gemini integration
+- Incident remediation workflow
+- Code execution
+- Retry handling
+- Diff generation
+- RCA generation
+- Structured response generation
+
+### `graph.py`
+
+Contains a separate LangGraph workflow implementation using the execution tools.
+
+It is not imported by the current `main.py` deployed path.
+
+### `memory.py`
+
+Responsible for:
+
+- ChromaDB initialization
+- Embedding generation
+- Similar incident search
+- Incident storage
+
+### `tools.py`
+
+Contains the polyglot execution helper used by the alternate workflow.
+
+### `test_api.py`
+
+Contains a simple API-level test client for the `/triage` endpoint.
+
+---
+
+# 🚀 Local Setup
+
+## 1. Clone the Repository
+
+    git clone https://github.com/Yoshi1710/SRE-SWARM_AI.git
+    cd SRE-SWARM_AI
+
+## 2. Create a Virtual Environment
+
+### Windows
+
+    python -m venv venv
+    venv\Scripts\activate
+
+### Linux / macOS
+
+    python3 -m venv venv
+    source venv/bin/activate
+
+## 3. Install Dependencies
+
+    pip install -r requirements.txt
+
+## 4. Configure Gemini API
+
+Create a `.env` file:
+
+    GEMINI_API_KEY=your_api_key_here
+
+Do not commit the `.env` file to GitHub.
+
+## 5. Start the Application
+
+    uvicorn main:app --reload
+
+The API will normally be available at:
+
+    http://127.0.0.1:8000
+
+Swagger documentation:
+
+    http://127.0.0.1:8000/docs
+
+---
+
+# 🔍 Example API Request
+
+Using cURL:
+
+    curl -X POST "http://127.0.0.1:8000/triage" \
+    -H "Content-Type: application/json" \
+    -d "{\"language\":\"python\",\"broken_code\":\"def add(a, b): return a + b\\nprint(add(10, '5'))\",\"error_log\":\"TypeError: unsupported operand type(s) for +: 'int' and 'str'\"}"
+
+---
+
+# 🔐 Security Considerations
+
+The current project is primarily a technical implementation demonstrating an automated remediation workflow.
+
+Before exposing arbitrary code execution to untrusted users, additional security controls would be required.
+
+Important areas include:
+
+- Authentication
+- Authorization
+- Input validation
+- Rate limiting
+- Resource quotas
+- Process isolation
+- Containerized execution
+- Network isolation
+- Filesystem isolation
+- Dependency restrictions
+- Secrets management
+- Audit logging
+
+The current CORS configuration is permissive and should be restricted for a production deployment.
+
+---
+
+# ⚠️ Current Limitations
+
+### 1. Execution Isolation
+
+The current implementation relies on temporary files and subprocess execution rather than a hardened sandbox.
+
+### 2. LLM Reliability
+
+An LLM-generated patch can still be incorrect.
+
+Successful execution does not automatically prove that the software behavior is correct for every possible input.
+
+### 3. Test Depth
+
+The current verification primarily checks process execution success.
+
+A stronger production system would execute project-specific:
+
+- Unit tests
+- Integration tests
+- Regression tests
+- Static analysis
+- Security checks
+
+### 4. TypeScript Execution
+
+There is currently no dedicated TypeScript transpilation pipeline in the primary execution implementation.
+
+### 5. Embedding Fallback
+
+The deterministic local embedding fallback is not equivalent to semantic embeddings.
+
+### 6. Production Observability
+
+A production SRE platform would require stronger:
+
+- Metrics
+- Tracing
+- Structured logging
+- Incident history
+- Alerting
+- Audit trails
+
+### 7. Repository-Level Remediation
+
+The current workflow primarily operates on supplied source code rather than performing unrestricted repository-wide codebase analysis.
+
+---
+
+# 🧭 Future Engineering Directions
+
+## Secure Code Execution
+
+Replace local subprocess execution with isolated containers or microVMs.
+
+    API
+     ↓
+    Job Queue
+     ↓
+    Isolated Execution Worker
+     ↓
+    Tests
+     ↓
+    Result
+
+## Test-Aware Verification
+
+A stronger verification pipeline could become:
+
+    Generated Patch
+          ↓
+        Build
+          ↓
+      Unit Tests
+          ↓
+    Integration Tests
+          ↓
+     Static Analysis
+          ↓
+     Security Checks
+          ↓
+    Verified Remediation
+
+## Repository-Level Context
+
+Future versions could support:
+
+- Multiple files
+- Dependency graphs
+- Project configuration
+- Existing tests
+- Git history
+- Service ownership
+- Deployment configuration
+
+## Better Incident Memory
+
+Incident records could eventually include:
+
+- Incident category
+- Service
+- Repository
+- Commit
+- Failure signature
+- Root cause
+- Resolution
+- Verification tests
+- Timestamp
+- Resolution status
+
+## Observability Integration
+
+A future implementation could integrate with monitoring and incident-management systems to consume real incidents from production environments.
+
+---
+
+# 🧠 Engineering Principles
+
+### Candidate ≠ Verified
+
+An LLM response is a candidate remediation until execution provides evidence that the generated code runs successfully.
+
+### Feedback Matters
+
+Execution errors provide useful signals that can be passed back into the remediation workflow.
+
+### Bounded Automation
+
+Retries are deliberately bounded to prevent uncontrolled autonomous loops.
+
+### Historical Knowledge
+
+Previously verified incidents can provide useful context for future incidents.
+
+### Human Oversight
+
+Automated remediation should not remove the need for engineering review, particularly for production systems.
+
+---
+
+# 📊 What This Project Demonstrates
+
+SRE Swarm AI demonstrates practical integration of:
+
+- Large Language Models
+- Google Gemini
+- FastAPI
+- LangGraph
+- ChromaDB
+- Embeddings
+- Retrieval
+- Code generation
+- Automated code execution
+- Retry-based workflows
+- Unified diffs
+- Structured API design
+- Root-cause analysis
+- Persistent incident memory
+- Polyglot execution
+
+The central engineering concept is not simply:
+
+    LLM → Generate Code
+
+Instead, the project implements:
+
+    Incident
+       ↓
+    Understand
+       ↓
+    Retrieve Previous Knowledge
+       ↓
+    Generate Candidate Fix
+       ↓
+    Execute
+       ↓
+    Observe Result
+       ↓
+    Retry if Necessary
+       ↓
+    Verify
+       ↓
+    Generate RCA
+       ↓
+    Store Knowledge
+
+---
+
+# 📚 Learning Outcomes
+
+The project provides practical experience with:
+
+- LLM-powered application development
+- Gemini API integration
+- LangGraph state-based workflows
+- FastAPI REST API development
+- ChromaDB vector storage
+- Embedding-based similarity search
+- Subprocess execution
+- Multi-language execution
+- Automated feedback loops
+- Retry strategies
+- Error handling
+- Unified diff generation
+- Structured API responses
+- Root-cause analysis
+- Persistent incident memory
+- SRE automation concepts
+- Reliability considerations for LLM-generated code
+- Security considerations for automated code execution
+
+---
+
+# 🔮 Future Scope
+
+Potential future improvements include:
+
+- Secure container-based execution
+- Real unit-test-based verification
+- Repository-level code analysis
+- GitHub integration
+- Pull-request generation
+- Automated regression testing
+- Static analysis integration
+- Security scanning
+- CI/CD integration
+- Prometheus/Grafana observability
+- Incident-management integrations
+- Human approval gates
+- Improved semantic incident retrieval
+- Evaluation datasets
+- Reproducible benchmarks
+- Production-grade authentication and authorization
+
+---
+
+# 👨‍💻 Author
+
+**Deepak Singh Bisht**
+
+B.Tech CSE (AI/ML)
+
+GitHub: https://github.com/Yoshi1710
+
+---
+
+# 📄 Project Status
+
+SRE Swarm AI is an engineering and learning project demonstrating an LLM-assisted SRE incident remediation workflow.
+
+The current implementation focuses on:
+
+**Incident → Remediation → Execution → Feedback → Verification → RCA → Memory**
+
+The system is not presented as a replacement for production SRE teams or general-purpose coding agents. Its purpose is to demonstrate the design and implementation of an SRE-specific automated remediation pipeline using modern LLM, workflow orchestration, execution, and retrieval technologies.
 ```
-
----
-
-## 📜 License
-Distributed under the **MIT License**.
