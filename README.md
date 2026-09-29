@@ -1,10 +1,3 @@
-Yes — now I understand exactly what you mean.
-
-You want **ONE single code block from the first `# SRE Swarm AI` line to the very last line**, with **no separate code blocks anywhere inside it**. The `bash`, `json`, `python`, `text`, etc. sections should just be normal fenced content *inside that one README block*, not individually fenced by Markdown.
-
-Here is the complete README as **ONE single copy-paste block**:
-
-```markdown
 # SRE Swarm AI
 
 ### LLM-Assisted SRE Incident Remediation and Verification System
@@ -815,4 +808,3 @@ The current implementation focuses on:
 **Incident → Remediation → Execution → Feedback → Verification → RCA → Memory**
 
 The system is not presented as a replacement for production SRE teams or general-purpose coding agents. Its purpose is to demonstrate the design and implementation of an SRE-specific automated remediation pipeline using modern LLM, workflow orchestration, execution, and retrieval technologies.
-```
