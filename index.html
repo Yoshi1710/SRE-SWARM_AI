@@ -21,11 +21,13 @@
     </style>
 </head>
 <body>
-
     <h1>🛡️ SRE Swarm AI Enterprise Engine</h1>
     <p class="desc">Autonomous Surgical Patching, Unified Git Diffs & Subprocess Verification</p>
 
-    <label>Target Language</label>
+    <div id="languageNotice" role="status" aria-live="polite"
+         style="display:none; margin:10px 0; padding:10px; border-radius:8px; background:#422006; color:#fde68a; font-size:13px;"></div>
+
+    <label>Target Language (auto-detected when confidence is high)</label>
     <select id="lang">
         <option value="python">Python 3 (.py)</option>
         <option value="javascript">JavaScript / Node.js (.js)</option>
@@ -57,7 +59,7 @@ print(calculate_average_order([]))</textarea>
         <label>1. SRE Root Cause Analysis (RCA):</label>
         <pre id="rca" style="color: #cbd5e1;"></pre>
 
-        <label>2. Unified Git Diff Patch (Enterprise Scale):</label>
+        <label>2. Unified Git Diff Patch:</label>
         <pre id="diff" class="diff-view"></pre>
 
         <label>3. Full Verified Code Patch:</label>
@@ -71,11 +73,13 @@ print(calculate_average_order([]))</textarea>
         async function runFix() {
             const btn = document.getElementById('btn');
             const box = document.getElementById('result');
+            const notice = document.getElementById('languageNotice');
             const startTime = performance.now();
-            
-            btn.innerText = "⏳ Swarm surgical patching & sandbox testing...";
+
+            btn.innerText = "⏳ Detecting language, patching & testing...";
             btn.disabled = true;
             box.style.display = "none";
+            notice.style.display = "none";
 
             const payload = {
                 language: document.getElementById('lang').value,
@@ -83,24 +87,78 @@ print(calculate_average_order([]))</textarea>
                 error_log: document.getElementById('error').value
             };
 
-            const targetUrl = window.location.origin.includes('http') 
-                ? `${window.location.origin}/triage` 
-                : 'https://sre-swarm-ai.onrender.com/triage';
+            const baseUrl = window.location.origin.startsWith('http')
+                ? window.location.origin
+                : 'https://sre-swarm-ai.onrender.com';
+            const targetUrl = `${baseUrl}/triage`;
 
             try {
+                // Ask the backend to detect the language before starting repair.
+                const detectionResponse = await fetch(`${baseUrl}/detect-language`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ broken_code: payload.broken_code })
+                });
+
+                if (detectionResponse.ok) {
+                    const detection = await detectionResponse.json();
+                    const selected = document.getElementById('lang').value;
+
+                    if (detection.language && detection.language !== 'unknown'
+                        && detection.confidence >= 0.70) {
+                        if (selected !== detection.language) {
+                            document.getElementById('lang').value = detection.language;
+                            notice.innerText =
+                                `⚠️ Language mismatch: selected '${selected}', detected '${detection.language}'. Automatically switched to ${detection.language}.`;
+                            notice.style.display = 'block';
+                        }
+                        payload.language = detection.language;
+                    } else {
+                        const proceed = confirm(
+                            "Language detection is uncertain. Continue using your selected language (" +
+                            selected + ")?"
+                        );
+                        if (!proceed) return;
+
+                        notice.innerText =
+                            "⚠️ Detection is uncertain. Continuing with your selected language: " +
+                            selected + ".";
+                        notice.style.display = 'block';
+                    }
+                } else {
+                    // Backend performs its own detection too; continue if preflight fails.
+                    console.warn("Language pre-check failed; backend will validate it.");
+                }
+
                 const response = await fetch(targetUrl, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
 
-                if (!response.ok) throw new Error("Status: " + response.status);
+                if (!response.ok) {
+                    let message = "Status: " + response.status;
+                    try {
+                        const errData = await response.json();
+                        if (errData.detail) message += "\n" + errData.detail;
+                    } catch (_) {}
+                    throw new Error(message);
+                }
 
                 const data = await response.json();
                 const totalTime = ((performance.now() - startTime) / 1000).toFixed(2);
 
+                if (data.language) {
+                    document.getElementById('lang').value = data.language;
+                }
+                if (data.language_warning) {
+                    notice.innerText = "⚠️ " + data.language_warning;
+                    notice.style.display = 'block';
+                }
+
                 document.getElementById('status').innerText = data.status;
-                document.getElementById('telemetry').innerText = `⚡ Execution Latency: ${totalTime}s | Sandbox Retries: ${data.retries_used}`;
+                document.getElementById('telemetry').innerText =
+                    `⚡ Execution Latency: ${totalTime}s | Sandbox Retries: ${data.retries_used} | Language: ${data.language}`;
                 document.getElementById('rca').innerText = data.rca_post_mortem;
                 document.getElementById('diff').innerText = data.unified_diff;
                 document.getElementById('patch').innerText = data.verified_code_patch;
