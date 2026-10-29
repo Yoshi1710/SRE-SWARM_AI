@@ -6,6 +6,8 @@ import subprocess
 import sys
 import tempfile
 from typing import TypedDict
+import urllib.request
+import json
 
 try:
     import resource  
@@ -51,6 +53,25 @@ app.add_middleware(
 SUPPORTED_LANGUAGES = {"python", "javascript", "typescript", "go", "java", "c", "cpp"}
 MAX_CODE_CHARS = int(os.getenv("MAX_CODE_CHARS", "50000"))
 MAX_LOG_CHARS = int(os.getenv("MAX_LOG_CHARS", "12000"))
+
+def send_discord_alert(message: str):
+    webhook_url = os.getenv("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        return # Agar URL set nahi hai toh chupचाप wapas aa jao
+        
+    payload = {"content": f"🚨 **SRE-SWARM_AI Alert:**\n{message}"}
+    req = urllib.request.Request(
+        webhook_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json", 
+            "User-Agent": "SRE-Swarm-Bot"
+        }
+    )
+    try:
+        urllib.request.urlopen(req)
+    except Exception as e:
+        print(f"Discord alert failed: {e}")
 
 @app.get("/")
 @app.head("/")
@@ -338,6 +359,9 @@ def detect_language_endpoint(payload: dict):
 def triage(req: IncidentRequest):
     if not GROQ_KEYS and not GEMINI_API_KEY:
         raise HTTPException(status_code=503, detail="Server is missing AI API Keys.")
+    
+    alert_msg = f"**Issue Fixed/Analyzed Successfully!**\nLanguage: {request.language}\nError: {request.error_log[:100]}..."
+    send_discord_alert(alert_msg)
     
     detected = detect_language(req.broken_code)
     selected = req.language.lower().strip()
