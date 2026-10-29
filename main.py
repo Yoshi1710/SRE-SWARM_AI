@@ -57,6 +57,9 @@ SUPPORTED_LANGUAGES = {"python", "javascript", "typescript", "go", "java", "c", 
 MAX_CODE_CHARS = int(os.getenv("MAX_CODE_CHARS", "50000"))
 MAX_LOG_CHARS = int(os.getenv("MAX_LOG_CHARS", "12000"))
 
+@app.get("/")
+def health_check():
+    return {"status": "SRE-SWARM_AI is awake 24/7!"}
 
 def detect_language(code: str) -> dict:
     code = code or ""
