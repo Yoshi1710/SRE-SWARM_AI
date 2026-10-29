@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ChromaDB ka local folder set karna
 CHROMA_DATA_PATH = os.path.join(os.path.dirname(__file__), "chroma_db")
 client = chromadb.PersistentClient(path=CHROMA_DATA_PATH)
 collection = client.get_or_create_collection(name="sre_incident_memory", metadata={"hnsw:space": "cosine"})
@@ -41,7 +40,6 @@ def get_embedding(text: str) -> list[float] | None:
 
 
 def search_similar_incident(error_log: str, language: str) -> dict:
-    """Naya error aane par ChromaDB mein search karta hai ki kya aisa bug pehle fix kiya hai."""
     try:
         if collection.count() == 0:
             return {"found": False, "patch": "", "rca": ""}
@@ -54,7 +52,6 @@ def search_similar_incident(error_log: str, language: str) -> dict:
         
         if results and results.get("ids") and results["ids"][0]:
             distance = results["distances"][0][0]
-            # Cosine distance 0.15 se kam matlab purana error is naye error se kaafi similar hai
             if distance < 0.15:
                 meta = results["metadatas"][0][0]
                 print(f"[Memory] Found a similar past incident for {language}!")
@@ -67,14 +64,12 @@ def search_similar_incident(error_log: str, language: str) -> dict:
 
 
 def store_incident(error_log: str, verified_patch: str, language: str, rca: str = "") -> None:
-    """Jab Swarm AI kisi bug ko successfully theek kar deta hai, toh usko Database mein save karta hai."""
     try:
         vector = get_embedding(error_log)
         if vector is None:
             print("[Memory] Skipped storing incident because Gemini Embeddings are unavailable.")
             return
             
-        # Error log aur language ko mila kar ek unique ID generate karna
         incident_id = hashlib.sha256(f"{language.lower()}\0{error_log}".encode("utf-8")).hexdigest()
         
         collection.upsert(

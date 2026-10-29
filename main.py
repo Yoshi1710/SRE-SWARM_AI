@@ -30,26 +30,21 @@ GROQ_KEYS = [
     os.getenv("GROQ_API_KEY_3")
 ]
 GROQ_KEYS = [k.strip() for k in GROQ_KEYS if k and k.strip()]
-
-# Backup ke liye Gemini (Agar Groq ka server down ho)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 
-# Yahan humne fake openai model hata kar real Llama model daal diya h
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b").strip()
 
-# ==========================================
 
 app = FastAPI(title="SRE Swarm AI Enterprise Diff Engine", version="2.0.0")
 
-# Configure ALLOWED_ORIGINS as comma-separated origins in production.
 _origins = [x.strip() for x in os.getenv("ALLOWED_ORIGINS", "*").split(",") if x.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
     allow_credentials=False if "*" in _origins else True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "OPTIONS", "HEAD"],
     allow_headers=["Content-Type", "Authorization"],
 )
 
@@ -58,6 +53,7 @@ MAX_CODE_CHARS = int(os.getenv("MAX_CODE_CHARS", "50000"))
 MAX_LOG_CHARS = int(os.getenv("MAX_LOG_CHARS", "12000"))
 
 @app.get("/")
+@app.head("/")
 def health_check():
     return {"status": "SRE-SWARM_AI is awake 24/7!"}
 
@@ -81,14 +77,9 @@ def detect_language(code: str) -> dict:
     return {"language": best, "confidence": round(min(0.99, 0.55 + 0.08 * score + 0.06 * (score - second)), 2)}
 
 
-# ==========================================
-# NEW: THE SMART AI FALLBACK FUNCTION
-# ==========================================
 def call_ai_safe(prompt: str) -> str:
-    """Yeh function line se sari keys try karega, limit khatam hone par agli key layega"""
     last_error = None
 
-    # PLAN A: Groq API Key Rotation
     for index, key in enumerate(GROQ_KEYS):
         try:
             print(f"[Swarm AI] Trying Groq Key {index + 1} with model {GROQ_MODEL}...")
@@ -105,11 +96,9 @@ def call_ai_safe(prompt: str) -> str:
             last_error = exc
             error_str = str(exc).lower()
             
-            # Agar Error 429 hai (Limit Exceeded), toh aage badho agli key par
             if "429" in error_str or "rate limit" in error_str or "limit exceeded" in error_str:
                 print(f"[Warning] Groq Key {index + 1} Limit Reached! Switching to next key...")
                 continue
-            # Agar password/key galat type hui hai, toh chhod do usko
             elif "401" in error_str or "invalid" in error_str:
                 print(f"[Error] Groq Key {index + 1} is Invalid. Skipping...")
                 continue
@@ -117,7 +106,6 @@ def call_ai_safe(prompt: str) -> str:
                 print(f"[Error] Unknown Groq error: {exc}")
                 continue
 
-    # PLAN B: Gemini Fallback (Agar teeno Groq keys ki limit khatam ho jaye)
     if GEMINI_API_KEY:
         try:
             print("[Swarm AI] All Groq keys failed! Falling back to Gemini Model...")
@@ -129,7 +117,6 @@ def call_ai_safe(prompt: str) -> str:
             last_error = exc
             print(f"[Gemini Fallback] Failed: {exc}")
 
-    # Agar yahan tak aa gaya, matlab poora system haar gaya (Sab limits exhaust ho gayi)
     raise RuntimeError(f"All AI API Keys (Groq & Gemini) exhausted! Last error: {last_error}")
 
 
@@ -251,7 +238,6 @@ Requirements:
 - Return the COMPLETE corrected source file, not a diff, explanation or partial snippet.
 - Output raw source code only, with no Markdown fences or prose.
 """
-    # Yahan purana call_gemini_safe hatakar apna smart fallback function lagaya hai
     raw = call_ai_safe(prompt).strip()
     raw = re.sub(r"^```[a-zA-Z0-9_+-]*\s*|\s*```$", "", raw).strip()
     if not raw:
