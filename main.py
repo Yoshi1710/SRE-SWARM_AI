@@ -8,6 +8,7 @@ import tempfile
 from typing import TypedDict
 import urllib.request
 import json
+from fastapi.responses import HTMLResponse
 
 try:
     import resource  
@@ -73,10 +74,16 @@ def send_discord_alert(message: str):
     except Exception as e:
         print(f"Discord alert failed: {e}")
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 @app.head("/")
-def health_check():
-    return {"status": "SRE-SWARM_AI is awake 24/7!"}
+def serve_ui():
+    html_file = "index.html"
+    
+    if os.path.exists(html_file):
+        with open(html_file, "r", encoding="utf-8") as f:
+            return f.read()
+    else:
+        return "<h3>UI file (index.html) not found in project folder!</h3>"
 
 def detect_language(code: str) -> dict:
     code = code or ""
@@ -360,8 +367,10 @@ def triage(req: IncidentRequest):
     if not GROQ_KEYS and not GEMINI_API_KEY:
         raise HTTPException(status_code=503, detail="Server is missing AI API Keys.")
     
-    alert_msg = f"**Issue Fixed/Analyzed Successfully!**\nLanguage: {request.language}\nError: {request.error_log[:100]}..."
+   # --- DISCORD ALERT TRIGGER ---
+    alert_msg = f"🔍 **New Incident Received!**\nLanguage: `{req.language}`\nError Log: ```{req.error_log[:150]}...```"
     send_discord_alert(alert_msg)
+    # -----------------------------
     
     detected = detect_language(req.broken_code)
     selected = req.language.lower().strip()
