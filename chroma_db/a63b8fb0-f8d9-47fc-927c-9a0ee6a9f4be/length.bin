@@ -1,0 +1,2 @@
+invalid type: string "**Post‚Äëmortem ‚Äì Service Outage (2026‚Äë10‚Äë29\u{202f}02:14\u{202f}UTC)**  \n\n---\n\n### Root cause  \nThe application crashed with the following stack trace (captured from `app-prod-01` at\u{202f}02:13:57\u{202f}UTC):\n\n```\nTraceback (most recent call last):\n  File \"/opt/service/main.py\", line 212, in handle_request\n    ratio = total / count\n1
+êè∂∆ù“DKÄµ¢Ê

@@ -1,0 +1,51 @@
+name: SRE Swarm Tests
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          
+      - name: Setup Node.js (for JS/TS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          
+      - name: Install C/C++ Compilers
+        run: sudo apt-get update && sudo apt-get install -y gcc g++
+        
+      - name: Install TypeScript
+        run: npm install --global typescript
+        
+      - name: Install Python Dependencies
+        run: pip install -r requirements.txt
+        
+      - name: Compile Python Files
+        run: python -m py_compile main.py memory.py tests/test_engine.py
+        
+      - name: Run PyTest
+        run: python -m pytest -q

@@ -1,119 +1,89 @@
-import os
 import hashlib
-import random
+import os
+
 import chromadb
 import google.generativeai as genai
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# ChromaDB ka local folder set karna
 CHROMA_DATA_PATH = os.path.join(os.path.dirname(__file__), "chroma_db")
 client = chromadb.PersistentClient(path=CHROMA_DATA_PATH)
-collection = client.get_or_create_collection(
-    name="sre_incident_memory",
-    metadata={"hnsw:space": "cosine"}
-)
-
+collection = client.get_or_create_collection(name="sre_incident_memory", metadata={"hnsw:space": "cosine"})
 ACTIVE_EMBED_MODEL = None
 
-def get_best_embedding_model() -> str:
-    global ACTIVE_EMBED_MODEL
-    if ACTIVE_EMBED_MODEL:
-        return ACTIVE_EMBED_MODEL
 
-    try:
-        models = [
-            m.name for m in genai.list_models()
-            if "embedContent" in m.supported_generation_methods
-        ]
-        print(f"[ChromaDB Discovery]: Available embedding models: {models}")
-        for pref in ["models/text-embedding-004", "models/embedding-001"]:
-            if pref in models:
-                ACTIVE_EMBED_MODEL = pref
-                return ACTIVE_EMBED_MODEL
-        if models:
-            ACTIVE_EMBED_MODEL = models[0]
-            return ACTIVE_EMBED_MODEL
-    except Exception as e:
-        print(f"[Embedding Discovery Error]: {e}")
-
-    ACTIVE_EMBED_MODEL = "models/text-embedding-004"
-    return ACTIVE_EMBED_MODEL
-
-def generate_local_embedding(text: str, dim: int = 768) -> list[float]:
-    """Crash-proof deterministic fallback vector."""
-    seed = int(hashlib.md5(text.encode('utf-8')).hexdigest(), 16)
-    rng = random.Random(seed)
-    return [rng.uniform(-1.0, 1.0) for _ in range(dim)]
-
-def get_embedding(text: str) -> list[float]:
+def get_embedding(text: str) -> list[float] | None:
+    """Text (Error Logs) ko numbers (Vectors) mein convert karta hai Gemini ka use karke."""
     api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        return generate_local_embedding(text)
-
-    genai.configure(api_key=api_key)
-    model_name = get_best_embedding_model()
-
+    if not api_key or not text.strip():
+        return None
+        
     try:
-        res = genai.embed_content(
-            model=model_name,
-            content=text,
-            task_type="retrieval_document"
-        )
-        return res.get("embedding", [])
-    except Exception:
-        try:
-            res = genai.embed_content(
-                model="models/embedding-001",
-                content=text
-            )
-            return res.get("embedding", [])
-        except Exception:
-            # Local fallback so server NEVER returns 500
-            return generate_local_embedding(text)
+        genai.configure(api_key=api_key)
+        global ACTIVE_EMBED_MODEL
+        if ACTIVE_EMBED_MODEL is None:
+            models = [m.name for m in genai.list_models() if "embedContent" in m.supported_generation_methods]
+            preferences = ["models/text-embedding-004", "models/embedding-001"]
+            ACTIVE_EMBED_MODEL = next((m for m in preferences if m in models), models[0] if models else None)
+            
+        if not ACTIVE_EMBED_MODEL:
+            return None
+            
+        result = genai.embed_content(model=ACTIVE_EMBED_MODEL, content=text, task_type="retrieval_query")
+        embedding = result.get("embedding")
+        return embedding if isinstance(embedding, list) and embedding else None
+        
+    except Exception as exc:
+        print(f"[Warning] Embedding unavailable; semantic memory skipped. Error: {exc}")
+        return None
+
 
 def search_similar_incident(error_log: str, language: str) -> dict:
+    """Naya error aane par ChromaDB mein search karta hai ki kya aisa bug pehle fix kiya hai."""
     try:
         if collection.count() == 0:
             return {"found": False, "patch": "", "rca": ""}
-
-        query_emb = get_embedding(error_log)
-        results = collection.query(
-            query_embeddings=[query_emb],
-            n_results=1,
-            where={"language": language.lower()}
-        )
-
-        if results and results["ids"] and len(results["ids"][0]) > 0:
+            
+        vector = get_embedding(error_log)
+        if vector is None:
+            return {"found": False, "patch": "", "rca": ""}
+            
+        results = collection.query(query_embeddings=[vector], n_results=1, where={"language": language.lower()})
+        
+        if results and results.get("ids") and results["ids"][0]:
             distance = results["distances"][0][0]
+            # Cosine distance 0.15 se kam matlab purana error is naye error se kaafi similar hai
             if distance < 0.15:
-                metadata = results["metadatas"][0][0]
-                print(f"[ChromaDB Cache Hit]: Found patch with distance {distance:.4f}")
-                return {
-                    "found": True,
-                    "patch": metadata.get("verified_patch", ""),
-                    "rca": metadata.get("rca", "Retrieved from persistent cache.")
-                }
-    except Exception as e:
-        print(f"[ChromaDB Search Error]: {e}")
-
+                meta = results["metadatas"][0][0]
+                print(f"[Memory] Found a similar past incident for {language}!")
+                return {"found": True, "patch": meta.get("verified_patch", ""), "rca": meta.get("rca", "")}
+                
+    except Exception as exc:
+        print(f"[Memory Search Warning] {exc}")
+        
     return {"found": False, "patch": "", "rca": ""}
 
-def store_incident(error_log: str, verified_patch: str, language: str, rca: str = ""):
-    try:
-        emb = get_embedding(error_log)
-        doc_id = hashlib.md5(f"{language}_{error_log}".encode()).hexdigest()
 
+def store_incident(error_log: str, verified_patch: str, language: str, rca: str = "") -> None:
+    """Jab Swarm AI kisi bug ko successfully theek kar deta hai, toh usko Database mein save karta hai."""
+    try:
+        vector = get_embedding(error_log)
+        if vector is None:
+            print("[Memory] Skipped storing incident because Gemini Embeddings are unavailable.")
+            return
+            
+        # Error log aur language ko mila kar ek unique ID generate karna
+        incident_id = hashlib.sha256(f"{language.lower()}\0{error_log}".encode("utf-8")).hexdigest()
+        
         collection.upsert(
-            ids=[doc_id],
-            embeddings=[emb],
-            documents=[error_log],
-            metadatas=[{
-                "language": language.lower(),
-                "verified_patch": verified_patch,
-                "rca": rca
-            }]
+            ids=[incident_id], 
+            embeddings=[vector], 
+            documents=[error_log], 
+            metadatas=[{"language": language.lower(), "verified_patch": verified_patch, "rca": rca}]
         )
-        print(f"[ChromaDB]: Saved fix {doc_id[:8]} to disk.")
-    except Exception as e:
-        print(f"[ChromaDB Store Warning]: {e}")
+        print(f"[Memory] Success! Stored fixed {language} bug in ChromaDB for future reference.")
+        
+    except Exception as exc:
+        print(f"[Memory Store Warning] {exc}")
